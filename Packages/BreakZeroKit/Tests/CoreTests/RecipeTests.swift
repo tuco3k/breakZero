@@ -15,7 +15,8 @@ final class RecipeTests: XCTestCase {
         for platform in Platform.allCases {
             let r = try RecipeLibrary.bundled(platform)
             let used = Set(r.routes.map(\.toggle) + r.hide.map(\.toggle) + r.heuristics.map(\.toggle)
-                + r.behaviors.map(\.toggle) + r.canaries.map(\.toggle) + r.resourceBlocks.map(\.toggle))
+                + r.behaviors.map(\.toggle) + r.canaries.map(\.toggle) + r.resourceBlocks.map(\.toggle)
+                + [r.friendsFilter?.toggle, r.friendsFilter?.forceFollowingToggle].compactMap { $0 })
             for t in r.toggles {
                 XCTAssertTrue(used.contains(t.id), "\(platform): toggle \(t.id) controls nothing")
             }

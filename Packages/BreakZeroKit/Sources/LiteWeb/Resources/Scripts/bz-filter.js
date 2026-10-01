@@ -67,8 +67,290 @@
           anchorHref: c.mustNotExist.anchorHref ? re(c.mustNotExist.anchorHref) : null,
           selector: c.mustNotExist.selector || null
         };
-      })
+      }),
+      friends: compileFriends(r.friendsFilter, active.friends),
+      scan: compileScan(r.friendsFilter)
     };
+  }
+
+  // ---------------------------------------------------------------- Old Instagram (§4c)
+
+  var GATE_ID = 'ig.friends.storyGate';
+  var FR_ATTR = 'data-bz-fr';
+  var STORY_OK_ATTR = 'data-bz-story-ok';
+  var CAUGHT_UP_ID = 'ig.caughtUp';
+
+  function setOf(list) {
+    var o = Object.create(null);
+    (list || []).forEach(function (x) { o[String(x).toLowerCase()] = true; });
+    return o;
+  }
+
+  /* Active only when native sent a Friends list (`active.friends`); see ActiveRecipe. */
+  function compileFriends(ff, active) {
+    if (!ff || !active || !active.usernames || !active.usernames.length) return null;
+    return {
+      set: setOf(active.usernames),
+      forceFollowing: !!active.forceFollowing,
+      feedRoutes: (ff.feedRoutes || []).map(re),
+      feedPath: ff.feedPath || '/',
+      followingQuery: ff.followingQuery || null,
+      post: ff.post,
+      profileLink: re(ff.profileLink),
+      reserved: setOf(ff.reservedPaths),
+      postLink: re(ff.postLink),
+      storyTray: ff.storyTray,
+      storyRoute: re(ff.storyRoute),
+      storyExempt: setOf(ff.storyExempt),
+      storyAuthor: ff.storyAuthor,
+      caughtUpAfter: ff.caughtUpAfter || 20,
+      idleMs: (ff.idleSeconds || 4) * 1000
+    };
+  }
+
+  /* The setup collector works before any friend exists, so it doesn't depend on `active.friends`. */
+  function compileScan(ff) {
+    if (!ff || !ff.scanRoutes) return null;
+    var routes = {};
+    Object.keys(ff.scanRoutes).forEach(function (k) { routes[k] = re(ff.scanRoutes[k]); });
+    return { routes: routes, profileLink: re(ff.profileLink), reserved: setOf(ff.reservedPaths), checked: ff.scanChecked };
+  }
+
+  function isFeed(f, path) {
+    return f.feedRoutes.some(function (x) { return x.test(path); });
+  }
+
+  /* Username a profile path points at (lower-cased), or null for anything that isn't a profile. */
+  function profileUser(f, path) {
+    if (path == null) return null;
+    var m = f.profileLink.exec(path);
+    if (!m || !m.groups || !m.groups.user) return null;
+    var u = m.groups.user.toLowerCase();
+    return f.reserved[u] ? null : u;
+  }
+
+  /* The first profile link in an element (document order) — the post's author. Hrefs only. */
+  function firstProfile(c, f, el, base) {
+    var anchors = el.matches && el.matches('a[href]') ? [el] : el.querySelectorAll('a[href]');
+    for (var i = 0; i < anchors.length; i++) {
+      var u = profileUser(f, anchorPath(c, anchors[i], base));
+      if (u) return u;
+    }
+    return null;
+  }
+
+  function hasQuery(search, query) {
+    return ('&' + String(search || '').replace(/^\?/, '') + '&').indexOf('&' + query + '&') >= 0;
+  }
+
+  /* Feed URL to go to instead, when Following is forced and this feed URL isn't it. */
+  function followingTarget(f, url) {
+    if (!f || !f.forceFollowing || !f.followingQuery || !isFeed(f, url.pathname)) return null;
+    if (hasQuery(url.search, f.followingQuery)) return null;
+    var q = String(url.search || '').replace(/^\?/, '');
+    return url.pathname + '?' + f.followingQuery + (q ? '&' + q : '');
+  }
+
+  /*
+   * Feed pass: mark friend posts and tray items ok (default-deny CSS hides the rest), record the
+   * tray order (for story skipping) and decide when the feed is "caught up". Re-checks every post
+   * every time: React reuses nodes for new content. Returns { posts, okPosts, run, caughtUp }.
+   */
+  function runFriendsFeed(c, doc, path, base, fs, now) {
+    var f = c.friends;
+    var out = { posts: 0, okPosts: 0, run: 0, caughtUp: false };
+    if (!f || !isFeed(f, path)) return out;
+    var posts = doc.querySelectorAll(f.post);
+    var lastOk = null;
+    for (var i = 0; i < posts.length; i++) {
+      var author = firstProfile(c, f, posts[i], base);
+      if (author && f.set[author]) {
+        if (posts[i].getAttribute(FR_ATTR) !== 'ok') posts[i].setAttribute(FR_ATTR, 'ok');
+        lastOk = posts[i];
+        out.okPosts++;
+        out.run = 0;
+      } else {
+        if (posts[i].hasAttribute(FR_ATTR)) posts[i].removeAttribute(FR_ATTR);
+        out.run++;
+      }
+    }
+    out.posts = posts.length;
+
+    var tray = doc.querySelectorAll(f.storyTray);
+    var order = [];
+    for (var j = 0; j < tray.length; j++) {
+      var m = f.storyRoute.exec(anchorPath(c, tray[j], base) || '');
+      var u = m && m.groups && m.groups.user ? m.groups.user.toLowerCase() : null;
+      if (u && f.set[u]) {
+        if (tray[j].getAttribute(FR_ATTR) !== 'ok') tray[j].setAttribute(FR_ATTR, 'ok');
+      } else if (tray[j].hasAttribute(FR_ATTR)) {
+        tray[j].removeAttribute(FR_ATTR);
+      }
+      if (u && order.indexOf(u) < 0) order.push(u);
+    }
+    if (order.length) fs.trayOrder = order;
+
+    if (posts.length !== fs.postCount) { fs.postCount = posts.length; fs.lastNewPostAt = now; }
+    var idle = posts.length > 0 && out.run > 0 && now - fs.lastNewPostAt >= f.idleMs;
+    if (fs.card && fs.card.isConnected) {
+      out.caughtUp = true;
+    } else if (out.run >= f.caughtUpAfter || idle) {
+      insertCaughtUp(doc, f, lastOk || posts[0], !lastOk, fs);
+      out.caughtUp = !!fs.card;
+    }
+    return out;
+  }
+
+  /*
+   * "You're all caught up": our card goes after the last friend post (or before the first post),
+   * and everything after it inside <main> is hidden, so the rest of the list and the site's loader
+   * stay out of view and loading stops. Our own element; the site's nodes are only hidden.
+   */
+  function insertCaughtUp(doc, f, anchorPost, before, fs) {
+    if (!anchorPost) return;
+    var row = anchorPost;
+    // Climb to the post's row: the highest ancestor that holds no other post.
+    while (row.parentElement && !STRUCTURAL.test(row.parentElement.tagName) &&
+           row.parentElement.querySelectorAll(f.post).length <= 1) {
+      row = row.parentElement;
+    }
+    var list = row.parentElement;
+    if (!list) return;
+    var card = doc.createElement('div');
+    card.setAttribute('data-bz', 'caughtup');
+    card.setAttribute('role', 'status');
+    card.style.cssText = 'padding:28px 16px 40px;text-align:center;font:600 15px -apple-system,system-ui,sans-serif;opacity:.75';
+    card.textContent = fs.caughtUpText || "You're all caught up";
+    list.insertBefore(card, before ? row : row.nextSibling);
+    // Hide what follows the list inside <main> too (the loader often sits outside the list).
+    var el = list;
+    while (el && el.parentElement && !STRUCTURAL.test(el.tagName)) {
+      for (var sib = el.nextElementSibling; sib; sib = sib.nextElementSibling) {
+        if (!sib.hasAttribute(HIDDEN_ATTR)) sib.setAttribute(HIDDEN_ATTR, CAUGHT_UP_ID);
+      }
+      el = el.parentElement;
+    }
+    fs.card = card;
+  }
+
+  function removeCaughtUp(doc, fs) {
+    if (fs.card && fs.card.parentNode) fs.card.parentNode.removeChild(fs.card);
+    fs.card = null;
+    var marked = doc.querySelectorAll('[' + HIDDEN_ATTR + '="' + CAUGHT_UP_ID + '"]');
+    for (var i = 0; i < marked.length; i++) marked[i].removeAttribute(HIDDEN_ATTR);
+    fs.postCount = -1;
+  }
+
+  /*
+   * Story viewer: ok only when the user in the URL is a friend (or exempt, e.g. highlights) and the
+   * author shown in the viewer header, if any, is a friend. Marks <html data-bz-story-ok=path>;
+   * CSS keeps the viewer hidden until then. Returns null when fine, else { user, author }.
+   */
+  function runFriendsStory(c, doc, path, base) {
+    var f = c.friends;
+    var root = doc.documentElement;
+    var m = f ? f.storyRoute.exec(path) : null;
+    if (!m) {
+      if (root.hasAttribute(STORY_OK_ATTR)) root.removeAttribute(STORY_OK_ATTR);
+      return null;
+    }
+    var user = m.groups && m.groups.user ? m.groups.user.toLowerCase() : '';
+    var exempt = !!f.storyExempt[user];
+    var author = null;
+    var heads = doc.querySelectorAll(f.storyAuthor);
+    for (var i = 0; i < heads.length && !author; i++) author = firstProfile(c, f, heads[i], base);
+    var ok = (exempt || f.set[user]) && (author ? !!f.set[author] : !exempt);
+    if (ok) {
+      if (root.getAttribute(STORY_OK_ATTR) !== path) root.setAttribute(STORY_OK_ATTR, path);
+      return null;
+    }
+    if (root.hasAttribute(STORY_OK_ATTR)) root.removeAttribute(STORY_OK_ATTR);
+    // Exempt (highlights) with no author found yet: stay hidden, but it's not a violation yet.
+    if (exempt && !author) return null;
+    return { user: exempt ? author : user, author: author };
+  }
+
+  /* Next friend after `user` in the tray order we saw, skipping ones tried in this chain. */
+  function nextFriendStory(f, order, user, tried) {
+    var list = order || [];
+    var i = list.indexOf(user);
+    for (var k = i + 1; k < list.length; k++) {
+      if (f.set[list[k]] && !(tried && tried[list[k]])) return '/stories/' + list[k] + '/';
+    }
+    return null;
+  }
+
+  /*
+   * Setup collector: on the user's own Followers / Following / Close Friends page, read the
+   * usernames of profile links already on screen. Read-only; never fetches. Close Friends: only
+   * rows whose checkbox is checked. Returns { list, owner, usernames } of names not sent before.
+   */
+  function runScan(c, doc, path, base, sent) {
+    var sc = c.scan;
+    if (!sc) return null;
+    var list = null, owner = null;
+    Object.keys(sc.routes).forEach(function (k) {
+      var m = !list && sc.routes[k].exec(path);
+      if (m) { list = k; owner = m.groups && m.groups.owner ? m.groups.owner.toLowerCase() : null; }
+    });
+    if (!list) return null;
+    var names = [];
+    var seen = sent[list] || (sent[list] = Object.create(null));
+    function take(u) {
+      if (u && u !== owner && !seen[u]) { seen[u] = true; names.push(u); }
+    }
+    if (list === 'closeFriends') {
+      var boxes = doc.querySelectorAll(sc.checked);
+      var anyBox = doc.querySelectorAll('input[type=checkbox],[role=checkbox]').length > 0;
+      if (!anyBox) return { list: list, owner: null, usernames: [], noCheckboxes: true };
+      for (var i = 0; i < boxes.length; i++) {
+        var row = boxes[i];
+        var u = null;
+        for (var up = 0; up < 8 && row && !u; up++) { u = firstProfile(c, sc, row, base); row = row.parentElement; }
+        take(u);
+      }
+    } else {
+      var anchors = doc.querySelectorAll('a[href]');
+      for (var j = 0; j < anchors.length; j++) {
+        if (anchors[j].closest('nav')) continue;
+        take(profileUser(sc, anchorPath(c, anchors[j], base)));
+      }
+    }
+    return { list: list, owner: owner, usernames: names.slice(0, 500) };
+  }
+
+  /*
+   * Friends canaries: a post permalink visible outside any post container (the `post` selector no
+   * longer matches, so default deny can't hide it), or a story link to a non-friend outside the tray
+   * selector. Offenders are blurred. Returns failed canary ids.
+   */
+  function runFriendsCanaries(c, doc, path, base) {
+    var f = c.friends;
+    if (!f || !isFeed(f, path)) return [];
+    var failed = [];
+    var hideSelectors = activeHideSelectors(c, path);
+    var anchors = doc.querySelectorAll('main a[href]');
+    var total = doc.querySelectorAll('a[href]').length;
+    var post = false, story = false;
+    for (var i = 0; i < anchors.length; i++) {
+      var a = anchors[i];
+      if (isHiddenByUs(a, hideSelectors)) continue;
+      var p = anchorPath(c, a, base);
+      if (p === null) continue;
+      if (f.postLink.test(p) && !a.closest(f.post)) {
+        safeAncestor(a, 3, doc, total).setAttribute(BLUR_ATTR, 'ig.canary.friendsPost');
+        post = true;
+      }
+      var m = f.storyRoute.exec(p);
+      var u = m && m.groups && m.groups.user ? m.groups.user.toLowerCase() : null;
+      if (u && !f.set[u] && !f.storyExempt[u] && !a.matches(f.storyTray)) {
+        a.setAttribute(BLUR_ATTR, 'ig.canary.friendsStory');
+        story = true;
+      }
+    }
+    if (post) failed.push('ig.canary.friendsPost');
+    if (story) failed.push('ig.canary.friendsStory');
+    return failed;
   }
 
   function hostMatches(pattern, host) {
@@ -191,6 +473,17 @@
     // One rule per selector: an unsupported selector (e.g. :has on an old engine) only
     // drops its own rule, never the whole sheet.
     selectors.forEach(function (s) { css += s + '{display:none!important}'; });
+    var f = c.friends;
+    if (f && isFeed(f, path)) {
+      // Default deny: a post or tray item shows only once the script marked it a friend's.
+      css += ':is(' + f.post + '):not([' + FR_ATTR + '="ok"]){display:none!important}';
+      css += ':is(' + f.storyTray + '):not([' + FR_ATTR + '="ok"]){display:none!important}';
+      css += '[data-bz="caughtup"]~*{display:none!important}';
+    }
+    if (f && f.storyRoute.test(path)) {
+      // The viewer stays invisible until this exact story was checked.
+      css += 'html:not([' + STORY_OK_ATTR + ']) body{visibility:hidden!important}';
+    }
     return css;
   }
 
@@ -381,12 +674,14 @@
    * Install into a live page. `config` comes from native (LiteScriptBuilder):
    * { active: ActiveRecipe, state: {grant}, strings: {needsUpdate, report}, previousHref,
    *   limits: { blocked: reason | null } }
-   * hooks (tests only): `replace(url)` instead of navigating (jsdom can't), `setInterval(fn, ms)`
-   * instead of a real timer.
+   * hooks (tests only): `replace(url)` / `assign(url)` instead of navigating (jsdom can't),
+   * `setInterval(fn, ms)` instead of a real timer, `now()` instead of Date.now.
    */
   function install(win, config, hooks) {
     var doc = win.document;
     var replace = (hooks && hooks.replace) || function (u) { win.location.replace(u); };
+    var assign = (hooks && hooks.assign) || function (u) { win.location.assign(u); };
+    var clock = (hooks && hooks.now) || function () { return Date.now(); };
     var every = (hooks && hooks.setInterval) || function (fn, ms) { return win.setInterval(fn, ms); };
     var c = compile(config.active);
     var limits = config.limits || { blocked: null };
@@ -397,6 +692,17 @@
     var ctx = { lastEndedAt: 0, lastGestureAt: 0, now: 0 };
     var scheduled = false;
     var overlay = null;
+    // Old Instagram: per-page state. The tray order survives the full loads a story skip does.
+    var scanOn = !!config.scan;
+    var fs = { postCount: -1, lastNewPostAt: 0, trayOrder: session('bz.tray') || [], card: null, cardHref: null,
+               caughtUpText: strings.caughtUp, scanSent: {}, scanNoChecked: false, gaveUp: false };
+
+    function session(key, value) {
+      try {
+        if (arguments.length > 1) { win.sessionStorage.setItem(key, JSON.stringify(value)); return value; }
+        return JSON.parse(win.sessionStorage.getItem(key) || 'null');
+      } catch (e) { return null; }
+    }
 
     function post(msg) {
       try {
@@ -419,16 +725,90 @@
         clearOurMarks(doc);
         removeOverlay();
       }
+      var here = path + win.location.search;
+      if (fs.cardHref !== null && fs.cardHref !== here) { removeCaughtUp(doc, fs); fs.cardHref = null; }
+      checkStory();
       schedule();
+    }
+
+    /* Story viewer: synchronous, so a non-friend story is caught before the next frame. */
+    function checkStory() {
+      try {
+        var v = runFriendsStory(c, doc, win.location.pathname, win.location.href);
+        if (v) violate({ reason: 'redirected', detail: null, ruleID: GATE_ID, to: storyTarget(v.user) });
+      } catch (e) { post({ type: 'filterError', id: 'friends.story' }); }
+    }
+
+    /* Where a gated story goes: the next friend in the tray we saw, else back to the feed. */
+    function storyTarget(user) {
+      var f = c.friends;
+      if (!f) return c.landingPath;
+      var next = nextFriendStory(f, fs.trayOrder, user);
+      post({ type: 'friends', event: next ? 'storySkipped' : 'storyClosed' });
+      if (next) return next;
+      return f.feedPath + (f.forceFollowing && f.followingQuery ? '?' + f.followingQuery : '');
+    }
+
+    function storyUser(href) {
+      try {
+        var m = c.friends && c.friends.storyRoute.exec(new URL(href, win.location.href).pathname);
+        return m && m.groups && m.groups.user ? m.groups.user.toLowerCase() : null;
+      } catch (e) { return null; }
+    }
+
+    /* Force the Following feed, at most 3 times per 30 s; then give up (the filter still holds). */
+    function allowFollowingRedirect() {
+      var now = clock();
+      var recent = (session('bz.ff') || []).filter(function (t) { return now - t < 30000; });
+      if (recent.length >= 3) {
+        if (!fs.gaveUp) { fs.gaveUp = true; post({ type: 'friends', event: 'followingGaveUp' }); }
+        return false;
+      }
+      recent.push(now);
+      session('bz.ff', recent);
+      return true;
+    }
+
+    function maybeForceFollowing(navigate) {
+      var target;
+      try { target = followingTarget(c.friends, win.location); } catch (e) { target = null; }
+      if (!target || !allowFollowingRedirect()) return false;
+      post({ type: 'friends', event: 'forcedFollowing' });
+      (navigate || replace)(target);
+      return true;
     }
 
     function tick() {
       scheduled = false;
       var path = win.location.pathname;
+      var href = win.location.href;
       // Backstop: a URL change we didn't see (e.g. a router holding an old reference).
-      if (win.location.href !== lastHref) onURLChanged(lastHref);
-      runHeuristics(c, doc, path, win.location.href, post);
-      var failed = runCanaries(c, doc, path, win.location.href, post);
+      if (href !== lastHref) onURLChanged(lastHref);
+      runHeuristics(c, doc, path, href, post);
+      try {
+        runFriendsFeed(c, doc, path, href, fs, clock());
+        if (fs.card && fs.cardHref === null) {
+          fs.cardHref = path + win.location.search;
+          post({ type: 'friends', event: 'caughtUp' });
+        }
+      } catch (e) { post({ type: 'filterError', id: 'friends.feed' }); }
+      checkStory();
+      if (scanOn) {
+        try {
+          var r = runScan(c, doc, path, href, fs.scanSent);
+          if (r && r.noCheckboxes) {
+            if (!fs.scanNoChecked) { fs.scanNoChecked = true; post({ type: 'friends', event: 'scanNoChecked' }); }
+          } else if (r && r.usernames.length) {
+            post({ type: 'friendsScan', list: r.list, owner: r.owner, usernames: r.usernames });
+          }
+        } catch (e) { post({ type: 'filterError', id: 'friends.scan' }); }
+      }
+      if (fs.trayOrder.length) session('bz.tray', fs.trayOrder);
+      var failed = runCanaries(c, doc, path, href, post);
+      try { failed = failed.concat(runFriendsCanaries(c, doc, path, href)); } catch (e) {
+        failed.push('ig.canary.friends');
+        post({ type: 'filterError', id: 'friends.canary' });
+      }
       if (failed.length) showOverlay(failed); else removeOverlay();
     }
 
@@ -467,6 +847,7 @@
 
     function check(targetHref, fromHref) {
       var d = decideURL(c, targetHref, fromHref, state);
+      if (d.type === 'redirect' && d.ruleID === GATE_ID) d.to = storyTarget(storyUser(targetHref));
       if (d.type === 'allow' && fromHref) {
         ctx.now = Date.now();
         if (isAutoAdvance(c, new URL(fromHref), new URL(targetHref), ctx)) {
@@ -494,6 +875,7 @@
       var d = check(win.location.href, fromHref);
       lastHref = win.location.href;
       if (enforce(d, fromHref)) {
+        if (maybeForceFollowing()) return;
         post({ type: 'route', href: win.location.href, state: state });
         refresh();
       }
@@ -512,6 +894,19 @@
             var d = check(target, win.location.href);
             if (d.type === 'external') return original.apply(this, arguments);
             if (!enforce(d, win.location.href)) return undefined;
+            // Logo/Home tap or the site's own feed link: go to the Following feed instead. A
+            // replaceState that only drops the variant from the URL we're already on is the site
+            // tidying its URL; the content is already the Following feed, so let it be.
+            var ft = null;
+            try { ft = followingTarget(c.friends, new URL(target)); } catch (e) { ft = null; }
+            var tidy = name === 'replaceState' && c.friends && c.friends.followingQuery &&
+              hasQuery(win.location.search, c.friends.followingQuery) &&
+              new URL(target).pathname === win.location.pathname;
+            if (ft && !tidy && allowFollowingRedirect()) {
+              post({ type: 'friends', event: 'forcedFollowing' });
+              (name === 'pushState' ? assign : replace)(ft);
+              return undefined;
+            }
           }
         }
         var result = original.apply(this, arguments);
@@ -596,10 +991,12 @@
             violate({ reason: 'autoAdvance', detail: null, ruleID: null, to: f.pathname + f.search });
             return;
           }
+          if (maybeForceFollowing()) return;
           post({ type: 'route', href: win.location.href, state: state });
           refresh();
         }
         var v = watchdogCheck(c, win.location.href, state, limits);
+        if (v && v.ruleID === GATE_ID) v.to = storyTarget(storyUser(win.location.href));
         if (v) violate(v);
         schedule();
       } catch (e) {
@@ -617,6 +1014,7 @@
       try {
         if (next && next.active) c = compile(next.active);
         if (next && next.limits) limits = next.limits;
+        if (next && typeof next.scan === 'boolean') { scanOn = next.scan; fs.scanSent = {}; fs.scanNoChecked = false; }
         refresh();
         watchdog();
       } catch (e) {
@@ -627,6 +1025,7 @@
     // The first document load: native already ran the same decision; this is the backstop.
     var first = check(win.location.href, config.previousHref || null);
     if (first.type === 'redirect') enforce(first, win.location.href);
+    else maybeForceFollowing();
     refresh();
     if (limits.blocked) watchdog();
 
@@ -637,7 +1036,8 @@
       tick: tick,
       refresh: refresh,
       watchdog: watchdog,
-      ctx: ctx
+      ctx: ctx,
+      friendsState: fs
     };
   }
 
@@ -654,6 +1054,15 @@
     isAutoAdvance: isAutoAdvance,
     mediaReport: mediaReport,
     watchdogCheck: watchdogCheck,
+    GATE_ID: GATE_ID,
+    profileUser: profileUser,
+    followingTarget: followingTarget,
+    runFriendsFeed: runFriendsFeed,
+    runFriendsStory: runFriendsStory,
+    nextFriendStory: nextFriendStory,
+    runScan: runScan,
+    runFriendsCanaries: runFriendsCanaries,
+    removeCaughtUp: removeCaughtUp,
     install: install
   };
 });

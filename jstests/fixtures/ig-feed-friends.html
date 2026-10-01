@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es"><head><title>Instagram</title></head>
+<body>
+<main>
+  <div id="tray">
+    <a id="tray-alice" href="/stories/alice/">Historia</a>
+    <a id="tray-brand" href="/stories/brand/">Historia</a>
+    <a id="tray-bob" href="/stories/bob.b/">Historia</a>
+    <a id="tray-celeb" href="/stories/celeb/">Historia</a>
+  </div>
+  <div id="list">
+    <div class="row"><article id="p-alice"><header><a href="/alice/">alice</a></header><a href="/p/A1/">foto</a><a href="/brand/">brand y 3 más</a></article></div>
+    <!-- Visible text says a friend's name; the href says brand. Only the href counts. -->
+    <div class="row"><article id="p-brand"><header><a href="/brand/">alice</a></header><a href="/p/B1/">foto</a><a href="/alice/">alice</a></article></div>
+    <div class="row"><article id="p-ad"><header><a href="/shoe_co/">shoe_co</a></header><a href="https://www.facebook.com/ads/about/">Publicidad</a><a href="/p/AD1/">foto</a></article></div>
+    <div class="row"><article id="p-bob"><header><a href="https://www.instagram.com/bob.b/">bob.b</a></header><a href="/p/C1/">foto</a></article></div>
+    <!-- A hashtag link comes first; the first *profile* link is the author. -->
+    <div class="row"><article id="p-celeb"><header><a href="/explore/tags/sol/">#sol</a><a href="/celeb/">celeb</a></header><a href="/p/D1/">foto</a></article></div>
+  </div>
+  <div id="loader" role="progressbar"></div>
+</main>
+<nav id="tabbar">
+  <a id="tab-home" href="/">Inicio</a>
+  <a id="tab-direct" href="/direct/inbox/">Mensajes</a>
+  <a id="tab-profile" href="/me/">Perfil</a>
+</nav>
+</body></html>

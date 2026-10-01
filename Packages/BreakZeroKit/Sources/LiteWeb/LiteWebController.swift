@@ -67,6 +67,10 @@ public final class LiteWebController: NSObject {
     public var onCookiesChanged: (() -> Void)?
     /// The watchdog (page or native) moved the user off something that was showing.
     public var onViolation: ((WatchdogViolation) -> Void)?
+    /// Old Instagram setup: usernames the page read from one of the user's lists.
+    public var onFriendsScan: ((FriendsScanList, String?, [String]) -> Void)?
+    /// Old Instagram: read usernames on list pages (setup). Off unless the user started a scan.
+    public private(set) var scanning = false
     /// What the limits say about this platform right now (pushed into the page too).
     public private(set) var limits = LiteLimits.none
     private var watchdogTimer: Timer?
@@ -191,8 +195,16 @@ public final class LiteWebController: NSObject {
         if new.blocked != nil { watchdogTick(force: true) }
     }
 
+    /// Start/stop reading usernames on the user's Followers/Following/Close Friends pages.
+    public func setScanning(_ on: Bool) {
+        guard on != scanning else { return }
+        scanning = on
+        installUserScript(previousHref: webView.url?.absoluteString)
+        pushConfigToPage()
+    }
+
     private func pushConfigToPage() {
-        guard let js = try? LiteScriptBuilder.updateScript(active: engine.active, limits: limits) else { return }
+        guard let js = try? LiteScriptBuilder.updateScript(active: engine.active, limits: limits, scan: scanning) else { return }
         webView.evaluateJavaScript(js, in: nil, in: .page) { _ in }
     }
 
@@ -255,7 +267,8 @@ public final class LiteWebController: NSObject {
         ucc.removeAllUserScripts()
         do {
             let source = try LiteScriptBuilder.userScript(filterSource: filterSource, active: engine.active, state: state,
-                                                          strings: strings, previousHref: previousHref, limits: limits)
+                                                          strings: strings, previousHref: previousHref, limits: limits,
+                                                          scan: scanning)
             ucc.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         } catch {
             onEvent?("userScript build failed: \(error)")
@@ -307,6 +320,12 @@ public final class LiteWebController: NSObject {
             guard mediaReports < 20 else { return }
             mediaReports += 1
             onEvent?(MediaDiagnostics.describe(event: event, kind: kind, code: code, source: source))
+        case let .friendsScan(list, owner, usernames):
+            // Only while the user asked for a scan; otherwise a page can't feed suggestions at all.
+            guard scanning, !usernames.isEmpty else { return }
+            onFriendsScan?(list, owner, usernames)
+        case let .friends(event):
+            onEvent?("friends: \(event)")
         }
     }
 

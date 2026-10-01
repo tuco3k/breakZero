@@ -1,6 +1,6 @@
 {
   "platform": "instagram",
-  "version": 1,
+  "version": 2,
   "minEngine": 1,
   "hosts": ["instagram.com", "www.instagram.com", "m.instagram.com"],
   "authHosts": ["accounts.instagram.com", "www.facebook.com", "m.facebook.com", "accountscenter.instagram.com"],
@@ -17,7 +17,9 @@
     {"id": "ig.hideReelsEntryPoints", "defaultOn": true},
     {"id": "ig.hideSuggested", "defaultOn": true},
     {"id": "ig.hideSponsored", "defaultOn": true},
-    {"id": "ig.hideFeed", "defaultOn": false}
+    {"id": "ig.hideFeed", "defaultOn": false},
+    {"id": "ig.friendsOnly", "defaultOn": true},
+    {"id": "ig.forceFollowing", "defaultOn": true}
   ],
   "scopes": {
     "fromThread": "^/direct/t/"
@@ -44,6 +46,30 @@
     {"id": "ig.heur.suggestedPeople", "toggle": "ig.hideSuggested", "type": "anchorHref", "pattern": "^/explore/people/", "hideAncestor": 3, "routes": ["^/$"]},
     {"id": "ig.heur.exploreLinks", "toggle": "ig.blockExplore", "type": "anchorHref", "pattern": "^/explore/?$", "hideAncestor": 0}
   ],
+  "friendsFilter": {
+    "toggle": "ig.friendsOnly",
+    "forceFollowingToggle": "ig.forceFollowing",
+    "forcedToggles": ["ig.hideSuggested", "ig.hideSponsored"],
+    "feedRoutes": ["^/$"],
+    "feedPath": "/",
+    "followingQuery": "variant=following",
+    "post": "main article",
+    "profileLink": "^/(?<user>[A-Za-z0-9._]{1,30})/?$",
+    "reservedPaths": ["about", "accounts", "ajax", "api", "ar", "challenge", "create", "data", "developer", "direct", "emails", "explore", "graphql", "help", "jobs", "legal", "lite", "locations", "nametag", "notifications", "oauth", "p", "press", "privacy", "qr", "reel", "reels", "session", "settings", "shop", "static", "stories", "tags", "threads", "topics", "tv", "web", "your_activity"],
+    "postLink": "^/(p|reels?|tv)/[A-Za-z0-9_-]+",
+    "storyTray": "a[href^=\"/stories/\"]",
+    "storyRoute": "^/stories/(?<user>[A-Za-z0-9._]+)(/|$)",
+    "storyExempt": ["highlights"],
+    "storyAuthor": "header a[href]",
+    "caughtUpAfter": 20,
+    "idleSeconds": 4,
+    "scanRoutes": {
+      "followers": "^/(?<owner>[A-Za-z0-9._]+)/followers/?$",
+      "following": "^/(?<owner>[A-Za-z0-9._]+)/following/?$",
+      "closeFriends": "^/accounts/close_friends/?$"
+    },
+    "scanChecked": "input[type=checkbox]:checked, [role=checkbox][aria-checked=true]"
+  },
   "allowZones": [
     "^/direct/",
     "^/accounts/",

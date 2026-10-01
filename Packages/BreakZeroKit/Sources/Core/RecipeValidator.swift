@@ -121,6 +121,36 @@ public enum RecipeValidator {
             checkToggle(rb.toggle, rb.id)
             check(ContentRuleListBuilder.isWebKitCompatible(rb.urlFilter), "\(rb.id): urlFilter not WebKit-compatible")
         }
+        if let f = recipe.friendsFilter {
+            func selector(_ sel: String, _ name: String) {
+                check(!sel.isEmpty && !sel.contains("{") && !sel.contains("}") && !sel.contains("<"),
+                      "friendsFilter.\(name): invalid selector")
+            }
+            check(toggleIDs.contains(f.toggle), "friendsFilter: unknown toggle \(f.toggle)")
+            if let t = f.forceFollowingToggle { check(toggleIDs.contains(t), "friendsFilter: unknown toggle \(t)") }
+            for t in f.forcedToggles { check(toggleIDs.contains(t), "friendsFilter: unknown forced toggle \(t)") }
+            for r in f.feedRoutes { checkRegex(r, "friendsFilter.feedRoutes") }
+            check(f.feedPath.hasPrefix("/") && !f.feedPath.contains("?"), "friendsFilter.feedPath must be a path")
+            if let q = f.followingQuery {
+                check(!q.isEmpty && !q.contains("?") && !q.contains("#") && !q.contains("&"), "friendsFilter.followingQuery must be one name=value")
+            }
+            selector(f.post, "post")
+            selector(f.storyTray, "storyTray")
+            selector(f.storyAuthor, "storyAuthor")
+            selector(f.scanChecked, "scanChecked")
+            checkRegex(f.profileLink, "friendsFilter.profileLink")
+            check(PathRegex.namedGroups(in: f.profileLink).contains("user"), "friendsFilter.profileLink needs a `user` group")
+            checkRegex(f.postLink, "friendsFilter.postLink")
+            checkRegex(f.storyRoute, "friendsFilter.storyRoute")
+            check(PathRegex.namedGroups(in: f.storyRoute).contains("user"), "friendsFilter.storyRoute needs a `user` group")
+            for e in f.storyExempt { check(Friends.isValid(e), "friendsFilter.storyExempt: invalid \(e)") }
+            check((1...200).contains(f.caughtUpAfter), "friendsFilter.caughtUpAfter out of range 1...200")
+            check((1...60).contains(f.idleSeconds), "friendsFilter.idleSeconds out of range 1...60")
+            for (list, r) in f.scanRoutes {
+                check(FriendsScanList(rawValue: list) != nil, "friendsFilter.scanRoutes: unknown list \(list)")
+                checkRegex(r, "friendsFilter.scanRoutes.\(list)")
+            }
+        }
         check(Set(ruleIDs).count == ruleIDs.count, "duplicate rule ids")
 
         if !problems.isEmpty { throw RecipeValidationError(problems: problems) }

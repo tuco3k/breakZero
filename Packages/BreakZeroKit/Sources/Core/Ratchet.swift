@@ -25,6 +25,9 @@ public enum PolicyChange: Codable, Sendable, Equatable {
     case setShortFormBudget(minutes: Int)
     case addSchedule(ScheduleRule)
     case removeSchedule(id: String)
+    /// Old Instagram Friends list (normalized usernames, see `Friends.normalize`).
+    case addFriend(Platform, username: String)
+    case removeFriend(Platform, username: String)
 
     /// Changes with the same key edit the same thing; a newer submission supersedes a pending one.
     public var fieldKey: String {
@@ -47,6 +50,7 @@ public enum PolicyChange: Codable, Sendable, Equatable {
         case .setShortFormBudget: "limit/shortForm"
         case let .addSchedule(rule): "schedule/\(rule.id)"
         case let .removeSchedule(id): "schedule/\(id)"
+        case let .addFriend(p, u), let .removeFriend(p, u): "friend/\(p.rawValue)/\(u)"
         }
     }
 }
@@ -107,23 +111,30 @@ public struct Ratchet: Sendable {
     /// Toggles of each platform's short-form *route* rules: all on = short-form unreachable
     /// without a budget (allowance 0); any off = unlimited.
     public var shortFormToggles: [Platform: Set<String>]
+    /// Each platform's Old Instagram toggle (recipe `friendsFilter.toggle`).
+    public var friendsToggles: [Platform: String]
 
-    public init(toggleDefaults: [Platform: [String: Bool]], shortFormToggles: [Platform: Set<String>] = [:]) {
+    public init(toggleDefaults: [Platform: [String: Bool]], shortFormToggles: [Platform: Set<String>] = [:],
+                friendsToggles: [Platform: String] = [:]) {
         self.toggleDefaults = toggleDefaults
         self.shortFormToggles = shortFormToggles
+        self.friendsToggles = friendsToggles
     }
 
     public init(recipes: [Recipe]) {
         var d: [Platform: [String: Bool]] = [:]
         var sf: [Platform: Set<String>] = [:]
+        var ft: [Platform: String] = [:]
         for r in recipes {
             guard let p = Platform(rawValue: r.platform) else { continue }
             d[p] = Dictionary(uniqueKeysWithValues: r.toggles.map { ($0.id, $0.defaultOn) })
             let toggles = Set(r.routes.filter { $0.shortForm == true }.map(\.toggle))
             if !toggles.isEmpty { sf[p] = toggles }
+            if let f = r.friendsFilter { ft[p] = f.toggle }
         }
         self.toggleDefaults = d
         self.shortFormToggles = sf
+        self.friendsToggles = ft
     }
 
     func isOn(_ p: Platform, _ id: String, _ policy: WallPolicy) -> Bool {
@@ -183,6 +194,17 @@ public struct Ratchet: Sendable {
             return old == rule ? .neutral : .loosening
         case let .removeSchedule(id):
             return policy.limits.schedules.contains { $0.id == id } ? .loosening : .neutral
+        case let .addFriend(p, u):
+            // Showing one more person is a loosening, except the first friend: an empty list means
+            // the filter is off, so the first one switches it on.
+            let list = policy.settings(for: p).friends
+            guard let t = friendsToggles[p], isOn(p, t, policy), !list.contains(u) else { return .neutral }
+            return list.isEmpty ? .tightening : .loosening
+        case let .removeFriend(p, u):
+            // Hiding one more person is a tightening, except the last friend: that switches it off.
+            let list = policy.settings(for: p).friends
+            guard let t = friendsToggles[p], isOn(p, t, policy), list.contains(u) else { return .neutral }
+            return list.count == 1 ? .loosening : .tightening
         case let .setHardLock(until):
             switch (policy.hardLock?.until, until) {
             case (nil, nil): return .neutral
@@ -212,6 +234,8 @@ public struct Ratchet: Sendable {
         case let .setCooldown(c) where !WallPolicy.cooldownRange.contains(c): return "cooldown must be 1 h – 7 d"
         case let .addCustomBlock(_, p) where (try? PathRegex(p.hasPrefix("^") ? p : "^" + p)) == nil: return "invalid pattern"
         case let .addCustomHide(_, s) where s.isEmpty || s.contains("{") || s.contains("}") || s.contains("<"): return "invalid selector"
+        case let .addFriend(_, u) where !Friends.isValid(u), let .removeFriend(_, u) where !Friends.isValid(u):
+            return "invalid username"
         default: return nil
         }
     }
@@ -227,6 +251,10 @@ public struct Ratchet: Sendable {
         lock.ledger.record(sample)
         return changes.map { change in
             if let problem = validate(change) { return .rejectedInvalid(problem) }
+            if case let .addFriend(p, u) = change, policy.settings(for: p).friends.count >= Friends.maxCount,
+               !policy.settings(for: p).friends.contains(u) {
+                return .rejectedInvalid("at most \(Friends.maxCount) friends")
+            }
             if case let .addSchedule(rule) = change, policy.limits.schedules.count >= LimitsPolicy.maxSchedules,
                !policy.limits.schedules.contains(where: { $0.id == rule.id }) {
                 return .rejectedInvalid("at most \(LimitsPolicy.maxSchedules) schedules")
@@ -305,6 +333,8 @@ public struct Ratchet: Sendable {
             policy.limits.schedules.removeAll { $0.id == rule.id }
             policy.limits.schedules.append(rule)
         case let .removeSchedule(id): policy.limits.schedules.removeAll { $0.id == id }
+        case let .addFriend(p, u): edit(p) { if !$0.friends.contains(u) { $0.friends.append(u); $0.friends.sort() } }
+        case let .removeFriend(p, u): edit(p) { $0.friends.removeAll { $0 == u } }
         }
     }
 }

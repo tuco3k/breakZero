@@ -5,10 +5,13 @@ import Foundation
 public struct LiteStrings: Codable, Sendable, Equatable {
     public var needsUpdate: String
     public var report: String
+    /// Old Instagram: the card that ends the friends-only feed.
+    public var caughtUp: String
 
-    public init(needsUpdate: String, report: String) {
+    public init(needsUpdate: String, report: String, caughtUp: String = "You're all caught up") {
         self.needsUpdate = needsUpdate
         self.report = report
+        self.caughtUp = caughtUp
     }
 }
 
@@ -25,6 +28,8 @@ public enum LiteScriptBuilder {
         var strings: LiteStrings
         var previousHref: String?
         var limits: LiteLimits
+        /// Old Instagram setup: read usernames on the user's Followers/Following/Close Friends pages.
+        var scan: Bool
     }
 
     /// Contents of bz-filter.js, loaded once.
@@ -36,10 +41,10 @@ public enum LiteScriptBuilder {
     }
 
     public static func configJSON(active: ActiveRecipe, state: NavigationState, strings: LiteStrings,
-                                  previousHref: String?, limits: LiteLimits = .none) throws -> String {
+                                  previousHref: String?, limits: LiteLimits = .none, scan: Bool = false) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let config = Config(active: active, state: state, strings: strings, previousHref: previousHref, limits: limits)
+        let config = Config(active: active, state: state, strings: strings, previousHref: previousHref, limits: limits, scan: scan)
         let json = String(decoding: try encoder.encode(config), as: UTF8.self)
         // JSON is a JS expression, but keep the literal safe in every engine and context.
         return json
@@ -52,8 +57,10 @@ public enum LiteScriptBuilder {
     /// the page: worst case the page loads unfiltered and the native layers (content rules,
     /// navigation delegate, URL observer) still hold.
     public static func userScript(filterSource: String, active: ActiveRecipe, state: NavigationState,
-                                  strings: LiteStrings, previousHref: String?, limits: LiteLimits = .none) throws -> String {
-        let config = try configJSON(active: active, state: state, strings: strings, previousHref: previousHref, limits: limits)
+                                  strings: LiteStrings, previousHref: String?, limits: LiteLimits = .none,
+                                  scan: Bool = false) throws -> String {
+        let config = try configJSON(active: active, state: state, strings: strings, previousHref: previousHref,
+                                    limits: limits, scan: scan)
         return """
         (function () {
         \(filterSource)
@@ -70,11 +77,11 @@ public enum LiteScriptBuilder {
     }
 
     /// JS that pushes new rules/limits into a live page (`window.__bzUpdate`), no reload.
-    public static func updateScript(active: ActiveRecipe, limits: LiteLimits) throws -> String {
-        struct Update: Encodable { var active: ActiveRecipe; var limits: LiteLimits }
+    public static func updateScript(active: ActiveRecipe, limits: LiteLimits, scan: Bool = false) throws -> String {
+        struct Update: Encodable { var active: ActiveRecipe; var limits: LiteLimits; var scan: Bool }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let json = String(decoding: try encoder.encode(Update(active: active, limits: limits)), as: UTF8.self)
+        let json = String(decoding: try encoder.encode(Update(active: active, limits: limits, scan: scan)), as: UTF8.self)
             .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
             .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
         return "window.__bzUpdate && window.__bzUpdate(\(json));"
@@ -213,6 +220,15 @@ public enum LiteMessage: Equatable, Sendable {
     /// A `<video>`/`<audio>` event: "error", "stalled" or "playing" (first per element).
     case media(event: String, kind: String, code: Int?, source: String)
     case violation(WatchdogViolation)
+    /// Old Instagram setup: usernames read from profile links on one of the user's lists.
+    case friendsScan(list: FriendsScanList, owner: String?, usernames: [String])
+    /// Old Instagram events for the log (no usernames): see `friendsEvents`.
+    case friends(event: String)
+
+    static let friendsEvents: Set<String> = ["forcedFollowing", "followingGaveUp", "caughtUp", "storySkipped",
+                                             "storyClosed", "scanNoChecked"]
+    /// Per message; the page sends only names it hasn't sent before.
+    static let maxScanBatch = 500
 
     public static func parse(_ body: Any) -> LiteMessage? {
         guard let d = body as? [String: Any], let type = d["type"] as? String else { return nil }
@@ -245,6 +261,16 @@ public enum LiteMessage: Equatable, Sendable {
             let rawSource = d["source"] as? String ?? ""
             let source = ["blob", "url"].contains(rawSource) ? rawSource : "none"
             return .media(event: event, kind: kind, code: (d["code"] as? NSNumber)?.intValue, source: source)
+        case "friendsScan":
+            // Page scripts can post this too: validate everything; the result is only ever a suggestion.
+            guard let list = (d["list"] as? String).flatMap(FriendsScanList.init(rawValue:)) else { return nil }
+            let owner = (d["owner"] as? String).flatMap(Friends.normalize)
+            if list != .closeFriends, owner == nil { return nil }
+            let names = ((d["usernames"] as? [Any]) ?? []).prefix(maxScanBatch).compactMap { ($0 as? String).flatMap(Friends.normalize) }
+            return .friendsScan(list: list, owner: list == .closeFriends ? nil : owner, usernames: names)
+        case "friends":
+            guard let event = d["event"] as? String, friendsEvents.contains(event) else { return nil }
+            return .friends(event: event)
         default:
             return nil
         }

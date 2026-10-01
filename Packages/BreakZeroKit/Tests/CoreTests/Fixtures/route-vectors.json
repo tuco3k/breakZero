@@ -544,6 +544,106 @@
           "expect": "redirect:/"
         }
       ]
+    },
+    {
+      "name": "instagram old instagram: story gate",
+      "platform": "instagram",
+      "settings": {
+        "friends": [
+          "alice",
+          "bob.b"
+        ]
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/?variant=following",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/alice/111/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/bob.b/222/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/brand/333/",
+          "expect": "redirect:/?variant=following"
+        },
+        {
+          "url": "https://www.instagram.com/stories/bobxb/1/",
+          "expect": "redirect:/?variant=following",
+          "fresh": true
+        },
+        {
+          "url": "https://www.instagram.com/stories/alicesmith/1/",
+          "expect": "redirect:/?variant=following",
+          "fresh": true
+        },
+        {
+          "url": "https://www.instagram.com/stories/stranger",
+          "expect": "redirect:/?variant=following",
+          "fresh": true
+        },
+        {
+          "url": "https://www.instagram.com/stories/highlights/17890/",
+          "expect": "allow",
+          "fresh": true
+        },
+        {
+          "url": "https://www.instagram.com/stranger/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/direct/t/1/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/explore/search/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/p/ABC123/",
+          "expect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "instagram old instagram: following not forced, closes to the plain feed",
+      "platform": "instagram",
+      "settings": {
+        "friends": [
+          "alice"
+        ],
+        "toggles": {
+          "ig.forceFollowing": false
+        }
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/stories/brand/1/",
+          "expect": "redirect:/"
+        }
+      ]
+    },
+    {
+      "name": "instagram old instagram off: no gate",
+      "platform": "instagram",
+      "settings": {
+        "friends": [
+          "alice"
+        ],
+        "toggles": {
+          "ig.friendsOnly": false
+        }
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/stories/brand/1/",
+          "expect": "allow"
+        }
+      ]
     }
   ]
 }

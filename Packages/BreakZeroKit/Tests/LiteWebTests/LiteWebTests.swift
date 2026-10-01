@@ -117,4 +117,37 @@ final class LiteScriptBuilderTests: XCTestCase {
         XCTAssertNil(LiteMessage.parse(["type": "openURL", "url": "https://evil.example/"]))
         XCTAssertNil(LiteMessage.parse("nope"))
     }
+
+    func testFriendsScanMessagesAreValidated() {
+        XCTAssertEqual(LiteMessage.parse(["type": "friendsScan", "list": "followers", "owner": "Me",
+                                          "usernames": ["Alice", "bad name", 7, "bob.b"]]),
+                       .friendsScan(list: .followers, owner: "me", usernames: ["alice", "bob.b"]))
+        XCTAssertNil(LiteMessage.parse(["type": "friendsScan", "list": "followers", "usernames": ["a"]]),
+                     "followers need an owner")
+        XCTAssertNil(LiteMessage.parse(["type": "friendsScan", "list": "everyone", "owner": "me", "usernames": ["a"]]))
+        XCTAssertEqual(LiteMessage.parse(["type": "friendsScan", "list": "closeFriends", "owner": "x", "usernames": ["c"]]),
+                       .friendsScan(list: .closeFriends, owner: nil, usernames: ["c"]), "close friends are always your own")
+        let many = (0..<2000).map { "u\($0)" }
+        guard case let .friendsScan(_, _, names)? = LiteMessage.parse(["type": "friendsScan", "list": "following", "owner": "me", "usernames": many]) else {
+            return XCTFail("parse")
+        }
+        XCTAssertEqual(names.count, 500, "batches are capped")
+    }
+
+    func testFriendsEventsCarryNoNames() {
+        XCTAssertEqual(LiteMessage.parse(["type": "friends", "event": "caughtUp"]), .friends(event: "caughtUp"))
+        XCTAssertNil(LiteMessage.parse(["type": "friends", "event": "alice"]))
+    }
+
+    func testOldInstagramReachesThePage() throws {
+        let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(.instagram), settings: PlatformSettings(friends: ["alice"]))
+        let json = try LiteScriptBuilder.configJSON(active: active, state: .init(), strings: strings, previousHref: nil, scan: true)
+        XCTAssertTrue(json.contains(#""friends":{"forceFollowing":true,"usernames":["alice"]}"#))
+        XCTAssertTrue(json.contains(#""scan":true"#))
+        XCTAssertTrue(json.contains(#""caughtUp":"You're all caught up""#))
+        XCTAssertTrue(try LiteScriptBuilder.updateScript(active: active, limits: .none, scan: false).contains(#""scan":false"#))
+        let off = try ActiveRecipe(recipe: RecipeLibrary.bundled(.instagram))
+        XCTAssertFalse(try LiteScriptBuilder.configJSON(active: off, state: .init(), strings: strings, previousHref: nil)
+            .contains(#""friends":{"#))
+    }
 }

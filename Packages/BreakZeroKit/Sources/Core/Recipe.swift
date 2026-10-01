@@ -34,13 +34,16 @@ public struct Recipe: Codable, Sendable, Equatable {
     public var shortFormRoutes: [String]
     /// User agent the lite view should use: nil (WebKit default), "safari" or "desktopSafari".
     public var userAgent: String?
+    /// "Old Instagram": how to find posts, authors and stories (ARCHITECTURE.md §4c). nil = none.
+    public var friendsFilter: FriendsFilter?
 
     public init(
         platform: String, version: Int, minEngine: Int, hosts: [String], authHosts: [String] = [],
         landing: Landing, toggles: [Toggle], scopes: [String: String] = [:], routes: [RouteRule],
         hide: [HideRule] = [], heuristics: [Heuristic] = [], behaviors: [Behavior] = [],
         allowZones: [String] = [], canaries: [Canary] = [], resourceBlocks: [ResourceBlock] = [],
-        session: Session? = nil, shortFormRoutes: [String] = [], userAgent: String? = nil
+        session: Session? = nil, shortFormRoutes: [String] = [], userAgent: String? = nil,
+        friendsFilter: FriendsFilter? = nil
     ) {
         self.platform = platform
         self.version = version
@@ -60,6 +63,7 @@ public struct Recipe: Codable, Sendable, Equatable {
         self.session = session
         self.shortFormRoutes = shortFormRoutes
         self.userAgent = userAgent
+        self.friendsFilter = friendsFilter
     }
 
     // Optional arrays default to empty so recipe authors can omit them.
@@ -83,6 +87,7 @@ public struct Recipe: Codable, Sendable, Equatable {
         session = try c.decodeIfPresent(Session.self, forKey: .session)
         shortFormRoutes = try c.decodeIfPresent([String].self, forKey: .shortFormRoutes) ?? []
         userAgent = try c.decodeIfPresent(String.self, forKey: .userAgent)
+        friendsFilter = try c.decodeIfPresent(FriendsFilter.self, forKey: .friendsFilter)
     }
 
     public struct Session: Codable, Sendable, Equatable {
@@ -282,6 +287,79 @@ public struct Recipe: Codable, Sendable, Equatable {
 }
 
 extension Recipe {
+    /// Data for the friends-only feed and stories. Selectors and regexes only; the page script
+    /// (`bz-filter.js`) and `ActiveRecipe` interpret them. Matching is on `href`s, never text.
+    public struct FriendsFilter: Codable, Sendable, Equatable {
+        /// Master switch ("Old Instagram"). On + a non-empty Friends list = active.
+        public var toggle: String
+        /// Redirect the feed to its Following variant.
+        public var forceFollowingToggle: String?
+        /// Rules of these toggles run while the filter is active, even if switched off
+        /// (suggestions, sponsored).
+        public var forcedToggles: [String]
+        /// Path regexes of the home feed.
+        public var feedRoutes: [String]
+        /// The feed's path, and the query that selects the Following feed ("variant=following").
+        public var feedPath: String
+        public var followingQuery: String?
+        /// CSS selector of one feed post. Default deny: unmarked posts are hidden.
+        public var post: String
+        /// Path regex of a profile link; the first one in a post is its author.
+        public var profileLink: String
+        /// First path segments that aren't usernames (explore, p, reel, stories, …).
+        public var reservedPaths: [String]
+        /// Path regex of a post/reel permalink (canary: one visible outside a checked post).
+        public var postLink: String
+        /// CSS selector of a story-tray item that links to `/stories/<user>/`.
+        public var storyTray: String
+        /// Path regex of the story viewer with a named group `user`.
+        public var storyRoute: String
+        /// `/stories/<segment>/` values that aren't usernames (highlights).
+        public var storyExempt: [String]
+        /// CSS selector of the author's profile link inside the story viewer.
+        public var storyAuthor: String
+        /// Hidden posts in a row before "You're all caught up".
+        public var caughtUpAfter: Int
+        /// Seconds without a new post (last one hidden) before "You're all caught up".
+        public var idleSeconds: Int
+        /// Setup: list → path regex (named group `owner` for followers/following).
+        public var scanRoutes: [String: String]
+        /// Setup, Close Friends: selector of a checked row's checkbox.
+        public var scanChecked: String
+
+        public init(toggle: String, forceFollowingToggle: String? = nil, forcedToggles: [String] = [],
+                    feedRoutes: [String], feedPath: String = "/", followingQuery: String? = nil,
+                    post: String, profileLink: String, reservedPaths: [String] = [], postLink: String,
+                    storyTray: String, storyRoute: String, storyExempt: [String] = [], storyAuthor: String,
+                    caughtUpAfter: Int = 20, idleSeconds: Int = 4, scanRoutes: [String: String] = [:],
+                    scanChecked: String = "input[type=checkbox]:checked") {
+            self.toggle = toggle
+            self.forceFollowingToggle = forceFollowingToggle
+            self.forcedToggles = forcedToggles
+            self.feedRoutes = feedRoutes
+            self.feedPath = feedPath
+            self.followingQuery = followingQuery
+            self.post = post
+            self.profileLink = profileLink
+            self.reservedPaths = reservedPaths
+            self.postLink = postLink
+            self.storyTray = storyTray
+            self.storyRoute = storyRoute
+            self.storyExempt = storyExempt
+            self.storyAuthor = storyAuthor
+            self.caughtUpAfter = caughtUpAfter
+            self.idleSeconds = idleSeconds
+            self.scanRoutes = scanRoutes
+            self.scanChecked = scanChecked
+        }
+
+        /// Where closing a story goes: the feed, as its Following variant when that's forced.
+        public func feedPath(forceFollowing: Bool) -> String {
+            guard forceFollowing, let q = followingQuery else { return feedPath }
+            return feedPath + "?" + q
+        }
+    }
+
     public func toggleDefault(_ id: String) -> Bool? {
         toggles.first { $0.id == id }?.defaultOn
     }

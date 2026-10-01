@@ -10,12 +10,16 @@ public struct PlatformSettings: Codable, Sendable, Equatable {
     public var customBlocks: [String]
     /// User-added CSS selectors to hide (advanced rules).
     public var customHides: [String]
+    /// "Old Instagram" Friends list: normalized usernames, sorted (see `Friends`).
+    public var friends: [String]
 
-    public init(toggles: [String: Bool] = [:], landing: String? = nil, customBlocks: [String] = [], customHides: [String] = []) {
+    public init(toggles: [String: Bool] = [:], landing: String? = nil, customBlocks: [String] = [], customHides: [String] = [],
+                friends: [String] = []) {
         self.toggles = toggles
         self.landing = landing
         self.customBlocks = customBlocks
         self.customHides = customHides
+        self.friends = friends
     }
 
     // Missing keys default, so settings saved by an older build still load.
@@ -25,12 +29,19 @@ public struct PlatformSettings: Codable, Sendable, Equatable {
         landing = try c.decodeIfPresent(String.self, forKey: .landing)
         customBlocks = try c.decodeIfPresent([String].self, forKey: .customBlocks) ?? []
         customHides = try c.decodeIfPresent([String].self, forKey: .customHides) ?? []
+        friends = try c.decodeIfPresent([String].self, forKey: .friends) ?? []
     }
 
     public static let `default` = PlatformSettings()
 
     public func isOn(_ toggle: String, in recipe: Recipe) -> Bool {
         toggles[toggle] ?? recipe.toggleDefault(toggle) ?? true
+    }
+
+    /// Old Instagram is active: the recipe supports it, its toggle is on and the list isn't empty.
+    public func friendsActive(in recipe: Recipe) -> Bool {
+        guard let f = recipe.friendsFilter else { return false }
+        return !friends.isEmpty && isOn(f.toggle, in: recipe)
     }
 }
 
@@ -42,6 +53,8 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
     public var recipe: Recipe
     public var landingPath: String
     public var shortForm: ShortFormMode
+    /// Old Instagram, when active (the page script's friends filter reads this). nil = off.
+    public var friends: ActiveFriends?
 
     /// - signedIn: false picks the recipe's signed-out landing (YouTube: search).
     /// - shortForm: `.budgetAllowed` drops every rule marked `shortForm`; `.forcedBlocked` keeps
@@ -49,7 +62,10 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
     public init(recipe: Recipe, settings: PlatformSettings = .default, signedIn: Bool = true,
                 shortForm: ShortFormMode = .togglesDecide) throws {
         var r = recipe
-        let on = { (toggle: String) in settings.isOn(toggle, in: recipe) }
+        let friendsActive = settings.friendsActive(in: recipe)
+        // While Old Instagram is active, its forced toggles (suggestions, sponsored) run regardless.
+        let forced = Set(friendsActive ? recipe.friendsFilter?.forcedToggles ?? [] : [])
+        let on = { (toggle: String) in forced.contains(toggle) || settings.isOn(toggle, in: recipe) }
         func keep(_ toggle: String, _ isShortForm: Bool?) -> Bool {
             guard isShortForm == true else { return on(toggle) }
             switch shortForm {
@@ -73,7 +89,15 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
             Recipe.RouteRule(id: "custom.block.\(i)", toggle: Self.customToggle,
                              pattern: pattern.hasPrefix("^") ? pattern : "^" + pattern, action: .block)
         }
-        r.routes = custom + r.routes
+        var gate: [Recipe.RouteRule] = []
+        if friendsActive, let f = recipe.friendsFilter {
+            let force = f.forceFollowingToggle.map(on) ?? false
+            gate = [Friends.storyGateRule(friends: settings.friends, filter: f, forceFollowing: force)]
+            self.friends = ActiveFriends(usernames: settings.friends, forceFollowing: force)
+        } else {
+            self.friends = nil
+        }
+        r.routes = custom + gate + r.routes
         r.hide += settings.customHides.enumerated().map { i, selector in
             Recipe.HideRule(id: "custom.hide.\(i)", toggle: Self.customToggle, selector: selector)
         }
