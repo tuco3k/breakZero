@@ -20,7 +20,7 @@ Test status (Linux, Swift 6.0.3 + Node 22):
 - [x] P0.6 Extensions that read the App Group, reconcile the wall and log — UNVERIFIED
 - [x] P0.7 `docs/ON_DEVICE_CHECKLIST.md`
 - [x] P0.8 README, LICENSE (MIT), PRIVACY, SECURITY_MODEL, RECIPES, CONTRIBUTING, docs/QA
-- [x] P0.9 CI: Linux `swift test` + Node tests on push; macOS build manual-only
+- [x] P0.9 CI: Linux `swift test` + Node tests on push (green on GitHub Actions); macOS build manual-only (never run)
 - [ ] P0.10 (owner) build on Mac, run spikes, report → then update ARCHITECTURE.md
 
 ## Phase 1 progress
@@ -64,7 +64,6 @@ Build these first on the Mac, in this order:
 12. `Extensions/ShieldAction/ShieldActionExtension.swift`
 13. `Extensions/DeviceActivityMonitor/DeviceActivityMonitorExtension.swift`
 14. `AppTests/AppTests.swift`
-15. `.github/workflows/ci.yml` (not yet seen running)
 
 Compiled and tested on Linux (Darwin-only branches inside them are UNVERIFIED):
 `Core/*` (except the `#if canImport(Darwin)` paths in `TrustedClock.swift` and `SharedStore.swift`),
