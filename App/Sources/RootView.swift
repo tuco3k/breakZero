@@ -44,9 +44,8 @@ struct RootView: View {
 /// doesn't tear the page down.
 ///
 /// Layout rule: nothing of ours overlaps the site. The header strip sits *above* the web view in a
-/// VStack, and the web view stays inside the safe area, so it ends above our tab bar (when shown)
-/// and above the home indicator. Previously the web view ran under the tab bar and covered
-/// Instagram's bottom navigation.
+/// VStack. With our tab bar shown the web view ends above it (it once ran under the tab bar and
+/// covered Instagram's bottom navigation); with the tab bar hidden it runs to the bottom of the screen.
 struct LiteTab: View {
     @Environment(AppModel.self) private var model
     let platform: Platform
@@ -59,6 +58,10 @@ struct LiteTab: View {
                 DoneForTodayView(platform: platform, reason: reason)
             } else if let c = model.controller(for: platform) {
                 LiteWebView(controller: c)
+                    // Tab bar hidden: run to the bottom edge of the screen. Otherwise the home-indicator
+                    // safe area (34 pt) showed as a blank bar under Instagram's navigation. WebKit
+                    // still keeps the page's fixed bars clear of the indicator (scroll view insets).
+                    .ignoresSafeArea(.container, edges: model.tabBarVisible ? [] : .bottom)
                     .accessibilityLabel(Text("\(platform.displayName) lite view"))
             } else {
                 ContentUnavailableView(String(localized: "Couldn't load filters"),
