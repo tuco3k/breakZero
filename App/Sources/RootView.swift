@@ -26,6 +26,7 @@ struct RootView: View {
             ForEach(model.policy.enabledPlatforms) { p in
                 LiteTab(platform: p)
                     .tabItem { Label(p.displayName, systemImage: p.symbolName) }
+                    .badge(model.unread[p] ?? 0)
                     .tag(AppTab.lite(p))
             }
             NavigationStack { WallView() }

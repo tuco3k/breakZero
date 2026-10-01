@@ -22,3 +22,5 @@ Each entry: the question, the default Claude Code chose, and why. The owner answ
 | 16 | CI cost: macOS runners on a private repo consume paid minutes. | CI runs Linux `swift test` + Node tests on every push. The macOS build job is **manual only** (`workflow_dispatch`). | BRIEF: ask before anything that costs money. |
 | 17 | Pass daily cap is per *local calendar day*. | Passes with a start time in the future (clock set back) still count toward today. | Simple to explain; clock tricks don't reset it. |
 | 18 | Hard Lock end. | Ends only when **both** the wall clock passes the date **and** trusted elapsed time has passed. | Clock-forward can't end it early. |
+| 19 | To validate `project.yml` without a Mac, XcodeGen 2.44.1 was built from source inside the Linux chroot (dev-only). | Done; `xcodegen generate` succeeds there. Generated `.xcodeproj`/plists are git-ignored. | Catches spec errors before the owner's first build. |
+| 20 | Downloads from lite views. | Images/videos go to Photos with add-only permission; other file types are discarded (logged). | Matches BRIEF §7 "downloads saved to Photos"; no Files integration in v1. |

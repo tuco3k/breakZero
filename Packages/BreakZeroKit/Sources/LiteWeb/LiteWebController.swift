@@ -36,15 +36,24 @@ public final class LiteWebController: NSObject {
     public var onEvent: ((String) -> Void)?
     /// Seconds from controller creation to the first finished landing load (Spike S6).
     public var onFirstLoad: ((TimeInterval) -> Void)?
+    /// Unread count parsed from the page title, for the tab badge.
+    public var onUnreadCount: ((Int?) -> Void)?
+    /// A file the site offered as a download (saved to a temporary URL); the app saves it to Photos.
+    public var onDownloaded: ((URL) -> Void)?
 
     private let filterSource: String
     private let strings: LiteStrings
     private var lastJSReportedHref: String?
     private var urlObservation: NSKeyValueObservation?
+    private var titleObservation: NSKeyValueObservation?
+    /// Back/forward list + scroll state, captured after each load, restored after a
+    /// web-content-process crash so the user lands where they were.
+    private var savedInteractionState: Any?
     private var ruleList: WKContentRuleList?
     private let createdAt = Date()
     private var reportedFirstLoad = false
     private var lastCommittedURL: URL?
+    fileprivate var pendingDownloads: [ObjectIdentifier: URL] = [:]
 
     /// Stable per-platform data store identifiers (iOS 17+): sessions persist across launches and
     /// each platform's cookies stay separate (also a candidate workaround for Spike S1).
@@ -89,6 +98,9 @@ public final class LiteWebController: NSObject {
         // without a navigation action. If the script didn't report this URL, decide natively.
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in self?.urlDidChange() }
+        }
+        titleObservation = webView.observe(\.title, options: [.new]) { [weak self] wv, _ in
+            Task { @MainActor in self?.onUnreadCount?(UnreadBadge.count(fromTitle: self?.webView.title)) }
         }
         installUserScript(previousHref: nil)
         compileContentRules()
@@ -248,6 +260,20 @@ extension LiteWebController: WKNavigationDelegate {
             reportedFirstLoad = true
             onFirstLoad?(Date().timeIntervalSince(createdAt))
         }
+        savedInteractionState = webView.interactionState
+    }
+
+    /// Files the page can't display (e.g. a saved photo/video) become downloads.
+    public func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        navigationResponse.canShowMIMEType ? .allow : .download
+    }
+
+    public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
     }
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -257,8 +283,36 @@ extension LiteWebController: WKNavigationDelegate {
 
     /// The web content process died (memory pressure, crash). Reload where we were.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        onEvent?("web content process terminated; reloading")
-        if webView.url != nil { webView.reload() } else { loadLanding() }
+        onEvent?("web content process terminated; restoring")
+        installUserScript(previousHref: nil)
+        if let saved = savedInteractionState {
+            webView.interactionState = saved
+        } else if webView.url != nil {
+            webView.reload()
+        } else {
+            loadLanding()
+        }
+    }
+}
+
+extension LiteWebController: WKDownloadDelegate {
+    public func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
+                         suggestedFilename: String) async -> URL? {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bz-downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let safeName = suggestedFilename.replacingOccurrences(of: "/", with: "_")
+        let url = dir.appendingPathComponent(UUID().uuidString + "-" + safeName)
+        pendingDownloads[ObjectIdentifier(download)] = url
+        return url
+    }
+
+    public func downloadDidFinish(_ download: WKDownload) {
+        if let url = pendingDownloads.removeValue(forKey: ObjectIdentifier(download)) { onDownloaded?(url) }
+    }
+
+    public func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        pendingDownloads.removeValue(forKey: ObjectIdentifier(download))
+        onEvent?("download failed: \((error as NSError).code)")
     }
 }
 

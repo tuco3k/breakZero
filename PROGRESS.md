@@ -8,14 +8,14 @@ Phase 1 in progress: recipes, rule engine, all five filter layers and their test
 the WebKit glue is UNVERIFIED.
 
 Test status (Linux, Swift 6.0.3 + Node 22):
-- `cd Packages/BreakZeroKit && swift test` → **61 tests pass** (Core, LiteWeb pure parts, Shielding with fakes).
+- `cd Packages/BreakZeroKit && swift test` → **62 tests pass** (Core, LiteWeb pure parts, Shielding with fakes).
 - `cd jstests && npm ci && npm test` → **27 tests pass** (route vectors shared with Swift, DOM filters, guard, canaries, autoplay).
 
 ## Phase 0 task plan
 - [x] P0.1 Read BRIEF/CLAUDE, draft `ARCHITECTURE.md`
 - [x] P0.2 Swift toolchain on Linux (Ubuntu `swiftlang` 6.0.3 in a chroot; see Blockers)
 - [x] P0.3 `Packages/BreakZeroKit`: Core / LiteWeb / Shielding products + tests
-- [x] P0.4 `project.yml` (XcodeGen): App + ShieldConfiguration + ShieldAction + DeviceActivityMonitor, Development Family Controls entitlement, App Group — UNVERIFIED (not generated on a Mac yet)
+- [x] P0.4 `project.yml` (XcodeGen): App + ShieldConfiguration + ShieldAction + DeviceActivityMonitor, Development Family Controls entitlement, App Group — `xcodegen generate` (2.44.1, built from source on Linux) succeeds: 5 targets, package products linked, 3 extensions embedded, scheme runs package tests. Not yet opened/built in Xcode.
 - [x] P0.5 App shell: tab bar, Wall tab, hidden Diagnostics (tap version 5×) with S1–S7 + shared log — UNVERIFIED
 - [x] P0.6 Extensions that read the App Group, reconcile the wall and log — UNVERIFIED
 - [x] P0.7 `docs/ON_DEVICE_CHECKLIST.md`
@@ -34,8 +34,8 @@ Test status (Linux, Swift 6.0.3 + Node 22):
 - [x] Allow zones (no DOM work in DMs/login/compose) (tested)
 - [x] YouTube autoplay guard (tested in JS) + tap-to-play for YouTube media (UNVERIFIED)
 - [x] Persistent per-platform `WKWebsiteDataStore(forIdentifier:)`, process-termination reload (UNVERIFIED)
-- [ ] Downloads → Photos; state restore via `interactionState` after process kill
-- [ ] Unread counts on lite tabs (notifications option A)
+- [x] Downloads → Photos (add-only), state restore via `interactionState` after process kill (UNVERIFIED)
+- [x] Unread counts on lite tabs from the page title's digits (parser tested; badge UNVERIFIED)
 - [ ] Real (scrubbed) HTML fixtures from a device; nightly Playwright canary (Phase 4)
 - [ ] Owner on-device acceptance (docs/ON_DEVICE_CHECKLIST.md §D, docs/QA.md)
 
@@ -50,7 +50,7 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
 
 ## Unverified (written but never compiled or run)
 Build these first on the Mac, in this order:
-1. `project.yml` (never run through XcodeGen on macOS)
+1. `project.yml` (generates on Linux; never opened in Xcode)
 2. `Packages/BreakZeroKit/Sources/LiteWeb/LiteWebController.swift`
 3. `Packages/BreakZeroKit/Sources/LiteWeb/LiteWebView.swift`
 4. `Packages/BreakZeroKit/Sources/Shielding/ScreenTime.swift` (iOS-only; also needs device testing)

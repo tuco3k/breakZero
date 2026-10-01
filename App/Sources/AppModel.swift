@@ -3,6 +3,7 @@ import Core
 import Foundation
 import LiteWeb
 import Observation
+import Photos
 import Shielding
 import SwiftUI
 import UIKit
@@ -27,6 +28,8 @@ final class AppModel {
     var acknowledgedWallDown = false
     var lastMessage: String?
     private(set) var controllers: [Platform: LiteWebController] = [:]
+    /// Unread counts parsed from page titles (tab badges).
+    private(set) var unread: [Platform: Int] = [:]
     let launchedAt: Date
 
     struct IdentifiedURL: Identifiable {
@@ -139,9 +142,33 @@ final class AppModel {
             let sinceLaunch = Date().timeIntervalSince(self.launchedAt)
             self.log(String(format: "S6 first load %@: %.2fs since controller, %.2fs since launch", p.rawValue, seconds, sinceLaunch))
         }
+        c.onUnreadCount = { [weak self] n in self?.unread[p] = n }
+        c.onDownloaded = { [weak self] url in self?.saveToPhotos(url) }
         controllers[p] = c
         c.loadLanding()
         return c
+    }
+
+    /// Downloads from a lite view (a photo/video the user chose to save) go to Photos, add-only.
+    func saveToPhotos(_ url: URL) {
+        let ext = url.pathExtension.lowercased()
+        let isVideo = ["mp4", "mov", "m4v"].contains(ext)
+        let isImage = ["jpg", "jpeg", "png", "heic", "gif", "webp"].contains(ext)
+        guard isVideo || isImage else {
+            log("download kept out of Photos (type .\(ext))")
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else { return }
+            PHPhotoLibrary.shared().performChanges({
+                if isVideo {
+                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+                } else {
+                    PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: url)
+                }
+            }, completionHandler: { _, _ in try? FileManager.default.removeItem(at: url) })
+        }
     }
 
     func rebuildLiteViews() {

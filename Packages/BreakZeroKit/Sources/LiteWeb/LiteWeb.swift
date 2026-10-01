@@ -110,6 +110,18 @@ public enum LiteScriptBuilder {
     }
 }
 
+/// Unread count from a page title like "(3) Instagram" — digits only, so it works in every
+/// language. Used for the tab badge (notifications option A: counts shown when opened).
+public enum UnreadBadge {
+    public static func count(fromTitle title: String?) -> Int? {
+        guard let title, title.hasPrefix("(") , let close = title.firstIndex(of: ")") else { return nil }
+        let inner = title[title.index(after: title.startIndex)..<close]
+        let digits = inner.filter(\.isNumber)
+        guard !digits.isEmpty, digits.count == inner.filter({ $0 != "+" }).count, let n = Int(digits) else { return nil }
+        return n
+    }
+}
+
 /// Messages the injected script posts to the `bz` handler. Page scripts can post too, so every
 /// field is validated and nothing here can widen what the user can reach.
 public enum LiteMessage: Equatable, Sendable {

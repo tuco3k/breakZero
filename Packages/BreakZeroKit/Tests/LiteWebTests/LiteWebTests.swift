@@ -45,6 +45,14 @@ final class LiteScriptBuilderTests: XCTestCase {
         XCTAssertFalse(s.contains("%3Cscript"))
     }
 
+    func testUnreadBadge() {
+        XCTAssertEqual(UnreadBadge.count(fromTitle: "(3) Instagram"), 3)
+        XCTAssertEqual(UnreadBadge.count(fromTitle: "(99+) Instagram"), 99)
+        XCTAssertNil(UnreadBadge.count(fromTitle: "Instagram"))
+        XCTAssertNil(UnreadBadge.count(fromTitle: "(Beta) Instagram"))
+        XCTAssertNil(UnreadBadge.count(fromTitle: nil))
+    }
+
     func testStableHash() {
         XCTAssertEqual(LiteScriptBuilder.stableHash(""), "cbf29ce484222325")
         XCTAssertEqual(LiteScriptBuilder.stableHash("a"), "af63dc4c8601ec8c")
