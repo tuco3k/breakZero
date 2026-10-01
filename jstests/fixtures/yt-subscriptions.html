@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="fr"><head><title>YouTube</title></head>
+<body>
+<ytm-app>
+  <ytm-pivot-bar-renderer id="pivot">
+    <ytm-pivot-bar-item-renderer id="pivot-home"><a href="/">Accueil</a></ytm-pivot-bar-item-renderer>
+    <ytm-pivot-bar-item-renderer id="pivot-shorts"><div class="pivot-shorts"></div><a href="/shorts/">Shorts</a></ytm-pivot-bar-item-renderer>
+    <ytm-pivot-bar-item-renderer id="pivot-subs"><a href="/feed/subscriptions">Abonnements</a></ytm-pivot-bar-item-renderer>
+  </ytm-pivot-bar-renderer>
+  <ytm-browse>
+    <ytm-reel-shelf-renderer id="shorts-shelf"><a href="/shorts/S1">s</a></ytm-reel-shelf-renderer>
+    <ytm-item-section-renderer id="sec1">
+      <ytm-video-with-context-renderer id="vid1"><a href="/watch?v=V1">vidéo</a></ytm-video-with-context-renderer>
+    </ytm-item-section-renderer>
+    <ytm-rich-item-renderer id="rogue-wrap"><div id="rogue-mid"><div id="rogue-inner"><a id="rogue-short" href="https://m.youtube.com/shorts/S2">s2</a></div></div></ytm-rich-item-renderer>
+  </ytm-browse>
+</ytm-app>
+</body></html>

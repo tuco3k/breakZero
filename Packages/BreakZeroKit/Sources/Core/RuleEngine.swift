@@ -137,8 +137,8 @@ public struct RuleEngine: Sendable {
 
     /// Captures land in paths and query strings: keep only unreserved characters raw.
     static func encodeComponent(_ value: String) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~@")
+        // ASCII only (CharacterSet.alphanumerics includes non-ASCII letters); matches the JS guard.
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~@")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
     }
 

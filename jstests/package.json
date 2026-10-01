@@ -1,0 +1,11 @@
+{
+  "name": "breakzero-jstests",
+  "private": true,
+  "description": "Dev-only tests for the injected filter script. Nothing here ships in the app.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
+}
