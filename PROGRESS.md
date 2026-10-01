@@ -14,7 +14,7 @@ Test status (Linux, Swift 6.0.3 + Node 22):
 - `cd jstests && npm ci && npm test` → **62 tests pass** (shared route vectors for guard and watchdog, DOM filters, canaries, autoplay, media diagnostics).
 
 Test status (macOS, Xcode 27, iPhone 17 Pro Simulator iOS 26.2), `xcodebuild … CODE_SIGNING_ALLOWED=NO build test`:
-- **63 tests pass**: CoreTests 50, LiteWebTests 7, ShieldingTests 5, breakZeroTests 1.
+- **113 tests pass** (2026-10-01, after feedback round 1): CoreTests 96, LiteWebTests 11, ShieldingTests 5, breakZeroTests 1.
 
 ## Phase 0 task plan
 - [x] P0.1 Read BRIEF/CLAUDE, draft `ARCHITECTURE.md`
@@ -117,8 +117,8 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   `docs/QA.md` › *Limits, budgets and schedules: try to break them*; SECURITY_MODEL.md residual risks.
 
 ## Next — what the owner should test on the phone (lite build is enough)
-Build first: `xcodegen generate`, then build on the Mac. New Swift files since the Mac build are
-UNVERIFIED (list below); expect a round of compile fixes.
+Built 2026-10-01 on the Mac (lite, free team 7DTC6L573G) and installed + launched on the owner's
+iPhone 17 Pro; no compile errors, one warning fixed (`DoneForTodayView` missing `import Combine`).
 1. **Layout** (item 1): our tab bar is hidden; the button at the top right of the strip shows/hides
    it; nothing of ours covers Instagram's bottom navigation or YouTube's controls, with the tab bar
    shown or hidden.
@@ -140,19 +140,11 @@ UNVERIFIED (list below); expect a round of compile fixes.
 Still open from before: checklist steps 1–17 (spikes S1, S3–S7 need the paid Screen Time build).
 
 ## Unverified
-Never compiled (written on Linux after the Mac build of 2026-10-01). Build these first:
-- `App/Sources/RootView.swift` (header strip, hidden tab bar, done-for-today, remaining minutes)
-- `App/Sources/AppModel.swift` (sessions, sign-out, usage meter, limits, watchdog wiring, RSS)
-- `App/Sources/Wall/WallView.swift` (Accounts, Limits, Platforms, explainer)
-- `App/Sources/Wall/WallExplainerView.swift`
-- `App/Sources/Limits/DoneForTodayView.swift`, `App/Sources/Limits/LimitsSection.swift`
-- `App/Sources/YouTube/YouTubeSubscriptionsView.swift`
-- `App/Sources/Diagnostics/DiagnosticsView.swift` (S8 section, desktop UA probe)
-- `App/Sources/BreakZeroApp.swift` (foreground → meter/watchdog)
-- `Packages/BreakZeroKit/Sources/LiteWeb/LiteWebController.swift` (watchdog, limits push, cookies,
-  media pause, recipe UA/landing host), `LiteSession.swift` (new)
-Compiled on macOS 2026-10-01 but never run on a device: the rest of the WebKit glue, `ScreenTime.swift`,
-the three extensions.
+Everything compiles on macOS (lite build, 2026-10-01; full build last checked at `0ec5866`). The lite
+app installs and launches on the owner's iPhone, but none of the new UI has been exercised on it yet:
+header strip / hidden tab bar, Accounts + `LiteSession` sign-out, Wall explainer, Limits and
+done-for-today, watchdog, YouTube RSS subscriptions, Diagnostics S8. Never run on a device:
+`ScreenTime.swift` and the three extensions (need the paid Screen Time build).
 Compiled and tested on Linux (CI: swift 6.0 + latest) and in Node: everything in `Core`, the pure parts
 of `LiteWeb` and `Shielding`, and `bz-filter.js`.
 
