@@ -546,12 +546,21 @@
       ]
     },
     {
-      "name": "instagram old instagram: story gate",
+      "name": "instagram feed rules: mutuals story gate from the feed",
       "platform": "instagram",
-      "settings": {
-        "friends": [
+      "people": {
+        "followers": [
           "alice",
-          "bob.b"
+          "bob.b",
+          "carol",
+          "fan"
+        ],
+        "following": [
+          "alice",
+          "bob.b",
+          "carol",
+          "brand",
+          "celeb"
         ]
       },
       "steps": [
@@ -560,19 +569,24 @@
           "expect": "allow"
         },
         {
-          "url": "https://www.instagram.com/stories/alice/111/",
+          "url": "https://www.instagram.com/stories/alice/1/",
           "expect": "allow"
         },
         {
-          "url": "https://www.instagram.com/stories/bob.b/222/",
-          "expect": "allow"
-        },
-        {
-          "url": "https://www.instagram.com/stories/brand/333/",
+          "url": "https://www.instagram.com/stories/brand/2/",
           "expect": "redirect:/?variant=following"
         },
         {
-          "url": "https://www.instagram.com/stories/bobxb/1/",
+          "url": "https://www.instagram.com/?variant=following",
+          "expect": "allow",
+          "fresh": true
+        },
+        {
+          "url": "https://www.instagram.com/stories/celeb/1/",
+          "expect": "redirect:/?variant=following"
+        },
+        {
+          "url": "https://www.instagram.com/stories/stranger",
           "expect": "redirect:/?variant=following",
           "fresh": true
         },
@@ -582,25 +596,20 @@
           "fresh": true
         },
         {
-          "url": "https://www.instagram.com/stories/stranger",
-          "expect": "redirect:/?variant=following",
-          "fresh": true
-        },
-        {
           "url": "https://www.instagram.com/stories/highlights/17890/",
           "expect": "allow",
           "fresh": true
         },
         {
-          "url": "https://www.instagram.com/stranger/",
-          "expect": "allow"
-        },
-        {
-          "url": "https://www.instagram.com/direct/t/1/",
+          "url": "https://www.instagram.com/fan/",
           "expect": "allow"
         },
         {
           "url": "https://www.instagram.com/explore/search/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/direct/t/1/",
           "expect": "allow"
         },
         {
@@ -610,17 +619,266 @@
       ]
     },
     {
-      "name": "instagram old instagram: following not forced, closes to the plain feed",
+      "name": "instagram feed rules: a story opened from that person's profile plays, one person only",
       "platform": "instagram",
+      "people": {
+        "followers": [
+          "alice",
+          "bob.b",
+          "carol",
+          "fan"
+        ],
+        "following": [
+          "alice",
+          "bob.b",
+          "carol",
+          "brand",
+          "celeb"
+        ]
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/brand/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/brand/1/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/brand/2/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/celeb/3/",
+          "expect": "redirect:/brand/"
+        },
+        {
+          "url": "https://www.instagram.com/stories/celeb/4/",
+          "expect": "redirect:/brand/",
+          "watchdog": "redirect:/?variant=following"
+        },
+        {
+          "url": "https://www.instagram.com/celeb/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/celeb/5/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/direct/inbox/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/celeb/6/",
+          "expect": "redirect:/direct/inbox/",
+          "watchdog": "redirect:/?variant=following"
+        }
+      ]
+    },
+    {
+      "name": "instagram feed rules: profile stories off stay on the profile",
+      "platform": "instagram",
+      "people": {
+        "followers": [
+          "alice",
+          "bob.b",
+          "carol",
+          "fan"
+        ],
+        "following": [
+          "alice",
+          "bob.b",
+          "carol",
+          "brand",
+          "celeb"
+        ]
+      },
+      "settings": {
+        "feedRules": {
+          "profileStories": false
+        }
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/brand/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/brand/1/",
+          "expect": "redirect:/brand/",
+          "watchdog": "redirect:/?variant=following"
+        },
+        {
+          "url": "https://www.instagram.com/stories/alice/2/",
+          "expect": "allow",
+          "fresh": true
+        }
+      ]
+    },
+    {
+      "name": "instagram feed rules: never show beats everything",
+      "platform": "instagram",
+      "people": {
+        "followers": [
+          "alice",
+          "bob.b",
+          "carol",
+          "fan"
+        ],
+        "following": [
+          "alice",
+          "bob.b",
+          "carol",
+          "brand",
+          "celeb"
+        ]
+      },
+      "settings": {
+        "feedRules": {
+          "never": [
+            "alice"
+          ],
+          "always": [
+            "alice"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/alice/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/alice/1/",
+          "expect": "redirect:/alice/",
+          "watchdog": "redirect:/?variant=following"
+        },
+        {
+          "url": "https://www.instagram.com/?variant=following",
+          "expect": "allow",
+          "fresh": true
+        },
+        {
+          "url": "https://www.instagram.com/stories/alice/1/",
+          "expect": "redirect:/?variant=following"
+        }
+      ]
+    },
+    {
+      "name": "instagram feed rules: everyone I follow, always show",
+      "platform": "instagram",
+      "people": {
+        "followers": [
+          "alice",
+          "bob.b",
+          "carol",
+          "fan"
+        ],
+        "following": [
+          "alice",
+          "bob.b",
+          "carol",
+          "brand",
+          "celeb"
+        ]
+      },
+      "settings": {
+        "feedRules": {
+          "stories": "everyone",
+          "always": [
+            "fan2"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/?variant=following",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/brand/1/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/fan/1/",
+          "expect": "redirect:/?variant=following"
+        },
+        {
+          "url": "https://www.instagram.com/stories/fan2/1/",
+          "expect": "allow",
+          "fresh": true
+        }
+      ]
+    },
+    {
+      "name": "instagram feed rules: My list kept for a rev. 1 Friends list",
+      "platform": "instagram",
+      "people": {
+        "followers": [
+          "alice",
+          "bob.b",
+          "carol",
+          "fan"
+        ],
+        "following": [
+          "alice",
+          "bob.b",
+          "carol",
+          "brand",
+          "celeb"
+        ]
+      },
       "settings": {
         "friends": [
           "alice"
+        ]
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/?variant=following",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/bob.b/1/",
+          "expect": "redirect:/?variant=following"
+        },
+        {
+          "url": "https://www.instagram.com/stories/alice/1/",
+          "expect": "allow",
+          "fresh": true
+        }
+      ]
+    },
+    {
+      "name": "instagram feed rules: following not forced closes to the plain feed",
+      "platform": "instagram",
+      "people": {
+        "followers": [
+          "alice",
+          "bob.b",
+          "carol",
+          "fan"
         ],
+        "following": [
+          "alice",
+          "bob.b",
+          "carol",
+          "brand",
+          "celeb"
+        ]
+      },
+      "settings": {
         "toggles": {
           "ig.forceFollowing": false
         }
       },
       "steps": [
+        {
+          "url": "https://www.instagram.com/",
+          "expect": "allow"
+        },
         {
           "url": "https://www.instagram.com/stories/brand/1/",
           "expect": "redirect:/"
@@ -628,16 +886,38 @@
       ]
     },
     {
-      "name": "instagram old instagram off: no gate",
+      "name": "instagram feed rules off, or no data yet: no gate",
       "platform": "instagram",
-      "settings": {
-        "friends": [
-          "alice"
+      "people": {
+        "followers": [
+          "alice",
+          "bob.b",
+          "carol",
+          "fan"
         ],
+        "following": [
+          "alice",
+          "bob.b",
+          "carol",
+          "brand",
+          "celeb"
+        ]
+      },
+      "settings": {
         "toggles": {
           "ig.friendsOnly": false
         }
       },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/stories/brand/1/",
+          "expect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "instagram feed rules with no mutuals data yet: no gate",
+      "platform": "instagram",
       "steps": [
         {
           "url": "https://www.instagram.com/stories/brand/1/",

@@ -13,12 +13,12 @@ const vectors = JSON.parse(fs.readFileSync(path.join(KIT, 'Tests', 'CoreTests', 
 // somehow got there anyway; every step the guard allows must pass the watchdog.
 for (const seq of vectors.sequences) {
   test('watchdog vectors: ' + seq.name, () => {
-    const c = bz.compile(active(seq.platform, seq.settings || {}, seq.signedIn !== false, seq.shortForm || 'togglesDecide'));
+    const c = bz.compile(active(seq.platform, seq.settings || {}, seq.signedIn !== false, seq.shortForm || 'togglesDecide', seq.people || null));
     let state = { grant: null };
     let current = null;
     seq.steps.forEach((step, i) => {
       if (step.fresh) { current = null; state = { grant: null }; }
-      const before = { grant: state.grant };
+      const before = { grant: state.grant, storyUser: state.storyUser || null };
       const d = bz.decideURL(c, step.url, current, state);
       const where = `${seq.name} step ${i}: ${step.url}`;
       if (d.type === 'allow') {
@@ -27,7 +27,7 @@ for (const seq of vectors.sequences) {
       } else if (d.type === 'redirect') {
         const v = bz.watchdogCheck(c, step.url, before, null);
         assert.ok(v, where + ' (forbidden page must be a violation)');
-        assert.equal(v.to, d.to, where);
+        assert.equal('redirect:' + v.to, step.watchdog || 'redirect:' + d.to, where);
         current = new URL(d.to, step.url).href;
       }
     });

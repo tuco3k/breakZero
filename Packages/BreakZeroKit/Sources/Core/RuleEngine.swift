@@ -17,8 +17,14 @@ public struct NavigationState: Codable, Sendable, Equatable {
     }
 
     public var grant: Grant?
+    /// Feed rules: the person whose stories were opened from their profile on purpose. Their
+    /// stories play; moving on to someone else goes back to their profile.
+    public var storyUser: String?
 
-    public init(grant: Grant? = nil) { self.grant = grant }
+    public init(grant: Grant? = nil, storyUser: String? = nil) {
+        self.grant = grant
+        self.storyUser = storyUser
+    }
 }
 
 public enum NavigationDecision: Equatable, Sendable {
@@ -45,12 +51,18 @@ public struct RuleEngine: Sendable {
     private let routes: [(Recipe.RouteRule, PathRegex)]
     private let scopes: [String: PathRegex]
     private let allowZones: [PathRegex]
+    private let storyGate: StoryGate?
 
     public init(active: ActiveRecipe) throws {
         self.active = active
         self.routes = try active.recipe.routes.map { ($0, try PathRegex($0.pattern)) }
         self.scopes = try active.recipe.scopes.mapValues { try PathRegex($0) }
         self.allowZones = try active.recipe.allowZones.map { try PathRegex($0) }
+        if let friends = active.friends, let f = active.recipe.friendsFilter {
+            self.storyGate = try StoryGate(friends: friends, filter: f)
+        } else {
+            self.storyGate = nil
+        }
     }
 
     public var recipe: Recipe { active.recipe }
@@ -96,6 +108,14 @@ public struct RuleEngine: Sendable {
         let here = query.map { path + "?" + $0 } ?? path
         let previousPath = previousPathAndQuery.map { Self.stripQuery($0) }
 
+        if let gate = storyGate {
+            if let user = gate.storyUser(path) {
+                return gate.decide(user: user, here: here, previousPath: previousPath,
+                                   previousPathAndQuery: previousPathAndQuery, state: &state)
+            }
+            state.storyUser = nil
+        }
+
         for (rule, regex) in routes {
             guard let captures = regex.firstMatch(path) else { continue }
             switch rule.action {
@@ -131,6 +151,10 @@ public struct RuleEngine: Sendable {
     }
 
     private func redirectUnlessHere(_ target: String, here: String, reason: NavigationDecision.Reason) -> NavigationDecision {
+        Self.redirectUnlessHere(target, here: here, reason: reason)
+    }
+
+    static func redirectUnlessHere(_ target: String, here: String, reason: NavigationDecision.Reason) -> NavigationDecision {
         // Never redirect to the page we're on: a recipe mistake must not become a reload loop.
         target == here ? .allow : .redirect(to: target, reason: reason)
     }
@@ -163,5 +187,64 @@ public struct RuleEngine: Sendable {
 
     static func stripQuery(_ s: String) -> String {
         s.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? s
+    }
+}
+
+/// Feed rules' story gate (ARCHITECTURE.md §4c rev. 2). Engine code rather than a route rule because
+/// it depends on where you came from. Mirrored by `storyDecision` in bz-filter.js; both run the
+/// shared route vectors.
+struct StoryGate: Sendable {
+    let friends: ActiveFriends
+    let route: PathRegex
+    let feedRoutes: [PathRegex]
+    let exempt: Set<String>
+
+    init(friends: ActiveFriends, filter: Recipe.FriendsFilter) throws {
+        self.friends = friends
+        self.route = try PathRegex(filter.storyRoute)
+        self.feedRoutes = try filter.feedRoutes.map { try PathRegex($0) }
+        self.exempt = Set(filter.storyExempt)
+    }
+
+    /// The story owner in a viewer path, lower-cased; nil if `path` isn't the story viewer.
+    func storyUser(_ path: String) -> String? {
+        route.firstMatch(path)?["user"]?.lowercased()
+    }
+
+    /// - Allowed person → play.
+    /// - Opened from that person's profile → play them only (profile stories on), else stay on the
+    ///   profile. Moving on to someone else → back to the profile you came from.
+    /// - Never-shown → their profile if you came from it, else close.
+    /// - From anywhere else that isn't the feed or a story → back to where you were.
+    /// - From the feed or another story, or a direct load → close to the feed (the page tries the next
+    ///   allowed person in the tray first).
+    func decide(user: String, here: String, previousPath: String?, previousPathAndQuery: String?,
+                state: inout NavigationState) -> NavigationDecision {
+        let id = Friends.storyGateID
+        if exempt.contains(user) { return .allow }
+        if let opened = state.storyUser {
+            if opened == user { return .allow }
+            state.storyUser = nil
+            return RuleEngine.redirectUnlessHere("/\(opened)/", here: here, reason: .bounced(ruleID: id))
+        }
+        if friends.allows(.stories, user) { return .allow }
+        let profile = "/\(user)/"
+        let fromProfile = previousPath.map { Self.trimSlash($0).lowercased() == "/" + user } ?? false
+        if fromProfile {
+            if friends.profileStories, !friends.never.contains(user) {
+                state.storyUser = user
+                return .allow
+            }
+            return RuleEngine.redirectUnlessHere(profile, here: here, reason: .bounced(ruleID: id))
+        }
+        if let prev = previousPath, let back = previousPathAndQuery, storyUser(prev) == nil,
+           !feedRoutes.contains(where: { $0.matches(prev) }) {
+            return RuleEngine.redirectUnlessHere(back, here: here, reason: .bounced(ruleID: id))
+        }
+        return RuleEngine.redirectUnlessHere(friends.closePath, here: here, reason: .redirected(ruleID: id))
+    }
+
+    static func trimSlash(_ p: String) -> String {
+        p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p
     }
 }

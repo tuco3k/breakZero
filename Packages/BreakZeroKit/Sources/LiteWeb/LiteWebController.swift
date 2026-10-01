@@ -67,10 +67,17 @@ public final class LiteWebController: NSObject {
     public var onCookiesChanged: (() -> Void)?
     /// The watchdog (page or native) moved the user off something that was showing.
     public var onViolation: ((WatchdogViolation) -> Void)?
-    /// Old Instagram setup: usernames the page read from one of the user's lists.
+    /// Feed rules setup: usernames the page read from one of the user's lists (manual scan or sync).
     public var onFriendsScan: ((FriendsScanList, String?, [String]) -> Void)?
-    /// Old Instagram: read usernames on list pages (setup). Off unless the user started a scan.
+    /// Authors the feed rules hid on the current page (status pill).
+    public var onFriendsHidden: (([String]) -> Void)?
+    /// The one-tap hide on a post.
+    public var onHideAccount: ((String) -> Void)?
+    public var onSyncEvent: ((FriendsScanList, SyncPageEvent) -> Void)?
+    /// Feed rules: read usernames on list pages (manual setup). Off unless the user started a scan.
     public private(set) var scanning = false
+    /// Feed rules: auto-scroll this list. nil unless the user started a sync.
+    public private(set) var sync: LiteSync?
     /// What the limits say about this platform right now (pushed into the page too).
     public private(set) var limits = LiteLimits.none
     private var watchdogTimer: Timer?
@@ -203,8 +210,17 @@ public final class LiteWebController: NSObject {
         pushConfigToPage()
     }
 
+    /// Start/stop the visible auto-scroll of one of the user's lists.
+    public func setSync(_ new: LiteSync?) {
+        guard new != sync else { return }
+        sync = new
+        installUserScript(previousHref: webView.url?.absoluteString)
+        pushConfigToPage()
+    }
+
     private func pushConfigToPage() {
-        guard let js = try? LiteScriptBuilder.updateScript(active: engine.active, limits: limits, scan: scanning) else { return }
+        guard let js = try? LiteScriptBuilder.updateScript(active: engine.active, limits: limits, scan: scanning,
+                                                           sync: sync) else { return }
         webView.evaluateJavaScript(js, in: nil, in: .page) { _ in }
     }
 
@@ -268,7 +284,7 @@ public final class LiteWebController: NSObject {
         do {
             let source = try LiteScriptBuilder.userScript(filterSource: filterSource, active: engine.active, state: state,
                                                           strings: strings, previousHref: previousHref, limits: limits,
-                                                          scan: scanning)
+                                                          scan: scanning, sync: sync)
             ucc.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         } catch {
             onEvent?("userScript build failed: \(error)")
@@ -304,6 +320,10 @@ public final class LiteWebController: NSObject {
         case let .redirect(reason, ruleID):
             lastJSReportedHref = nil
             onEvent?("guard redirect \(reason) \(ruleID ?? "")")
+            // The story gate kept you where you were: say why (toast).
+            if ruleID == Friends.storyGateID {
+                onViolation?(.init(reason: reason == "bounced" ? "bounced" : "redirected", detail: nil, ruleID: ruleID, source: .page))
+            }
         case let .refuse(reason):
             onEvent?("guard refused \(reason)")
         case let .canary(ids):
@@ -321,9 +341,17 @@ public final class LiteWebController: NSObject {
             mediaReports += 1
             onEvent?(MediaDiagnostics.describe(event: event, kind: kind, code: code, source: source))
         case let .friendsScan(list, owner, usernames):
-            // Only while the user asked for a scan; otherwise a page can't feed suggestions at all.
-            guard scanning, !usernames.isEmpty else { return }
+            // Only while the user asked for a scan or a sync of this list; otherwise a page can't
+            // feed the data at all.
+            guard scanning || sync?.list == list, !usernames.isEmpty else { return }
             onFriendsScan?(list, owner, usernames)
+        case let .friendsHidden(usernames):
+            onFriendsHidden?(usernames)
+        case let .hideAccount(username):
+            onHideAccount?(username)
+        case let .syncEvent(list, event):
+            guard sync?.list == list else { return }
+            onSyncEvent?(list, event)
         case let .friends(event):
             onEvent?("friends: \(event)")
         }
@@ -380,6 +408,11 @@ extension LiteWebController: WKNavigationDelegate {
         case let .redirect(to, reason):
             state = s
             onEvent?("redirect \(reason)")
+            if case let .bounced(id) = reason, id == Friends.storyGateID {
+                onViolation?(.init(reason: "bounced", detail: nil, ruleID: id, source: .native))
+            }
+            // Already on that page (a story ring on the profile you're on): just stay, no reload.
+            if let current = webView.url, RuleEngine.pathAndQuery(current) == to { return .cancel }
             if let target = redirectURL(to, like: url) {
                 installUserScript(previousHref: webView.url?.absoluteString)
                 webView.load(URLRequest(url: target))

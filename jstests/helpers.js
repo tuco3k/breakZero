@@ -13,15 +13,17 @@ function recipe(platform) {
   return JSON.parse(fs.readFileSync(path.join(KIT, 'Sources', 'Core', 'Resources', 'Recipes', platform + '.json'), 'utf8'));
 }
 
-function active(platform, settings = {}, signedIn = true, shortForm = 'togglesDecide') {
+function active(platform, settings = {}, signedIn = true, shortForm = 'togglesDecide', people = null) {
   const r = recipe(platform);
   const toggles = settings.toggles || {};
   const setting = (t) => (t in toggles ? toggles[t] : (r.toggles.find((x) => x.id === t) || { defaultOn: true }).defaultOn);
-  // Mirrors PlatformSettings.friendsActive + ActiveRecipe: forced toggles while Old Instagram is active.
+  // Mirrors PlatformSettings.feedRulesOn + ActiveRecipe: forced toggles while feed rules are on.
   const ff = r.friendsFilter;
   const friends = settings.friends || [];
-  const friendsActive = !!ff && friends.length > 0 && setting(ff.toggle);
-  const forced = new Set(friendsActive ? ff.forcedToggles || [] : []);
+  // Mirrors PlatformSettings.init(from:): rev. 1 data with a Friends list keeps "My list".
+  const rules = settings.feedRules || (friends.length ? { feed: 'myList', stories: 'myList' } : {});
+  const rulesOn = !!ff && setting(ff.toggle);
+  const forced = new Set(rulesOn ? ff.forcedToggles || [] : []);
   const on = (t) => forced.has(t) || setting(t);
   // Mirrors ActiveRecipe.init(shortForm:).
   const keepRule = (x) => {
@@ -31,17 +33,23 @@ function active(platform, settings = {}, signedIn = true, shortForm = 'togglesDe
     return on(x.toggle);
   };
   const keep = (list) => (list || []).filter(keepRule);
-  let gate = [];
   let activeFriends;
-  if (friendsActive) {
-    const force = ff.forceFollowingToggle ? on(ff.forceFollowingToggle) : false;
-    gate = [storyGateRule(friends, ff, force)];
-    activeFriends = { usernames: friends, forceFollowing: force };
+  if (rulesOn) {
+    const feed = allowed(rules.feed || 'mutuals', friends, rules, people);
+    const stories = allowed(rules.stories || 'mutuals', friends, rules, people);
+    const never = (rules.never || []).slice().sort();
+    if (feed || stories || never.length) {
+      const force = ff.forceFollowingToggle ? on(ff.forceFollowingToggle) : false;
+      activeFriends = {
+        feed, stories, never, forceFollowing: force, profileStories: rules.profileStories !== false,
+        closePath: force && ff.followingQuery ? ff.feedPath + '?' + ff.followingQuery : ff.feedPath
+      };
+    }
   }
   const out = Object.assign({}, r, {
     routes: (settings.customBlocks || []).map((p, i) => ({
       id: 'custom.block.' + i, toggle: 'custom', pattern: p.startsWith('^') ? p : '^' + p, action: 'block'
-    })).concat(gate, keep(r.routes)),
+    })).concat(keep(r.routes)),
     hide: keep(r.hide).concat((settings.customHides || []).map((s, i) => ({ id: 'custom.hide.' + i, toggle: 'custom', selector: s }))),
     heuristics: keep(r.heuristics),
     behaviors: (r.behaviors || []).filter((x) => on(x.toggle)),
@@ -55,14 +63,19 @@ function active(platform, settings = {}, signedIn = true, shortForm = 'togglesDe
   return result;
 }
 
-// Mirrors Friends.storyGatePattern / storyGateRule (Core/Friends.swift).
-function storyGateRule(friends, ff, forceFollowing) {
-  const names = friends.concat(ff.storyExempt || []).sort().map((n) => n.split('.').join('\\.'));
-  const to = forceFollowing && ff.followingQuery ? ff.feedPath + '?' + ff.followingQuery : ff.feedPath;
-  return {
-    id: 'ig.friends.storyGate', toggle: ff.toggle, action: 'redirect', to,
-    pattern: '^/stories/(?!(?:' + names.join('|') + ')(?:/|$))[^/]+(?:/|$)'
-  };
+// Mirrors PlatformSettings.allowed / base (Core/Friends.swift): (base(rule) ∪ always) − never,
+// sorted; null = no audience filter.
+function allowed(audience, myList, rules, people) {
+  const p = people || {};
+  const followers = p.followers || [], following = p.following || [], close = p.closeFriends || [];
+  let base;
+  if (audience === 'everyone') base = following.length ? following : null;
+  else if (audience === 'mutuals') base = followers.length && following.length ? following.filter((u) => followers.includes(u)) : null;
+  else if (audience === 'myList') base = myList;
+  else base = close.length ? close : null;
+  if (!base) return null;
+  const never = new Set(rules.never || []);
+  return [...new Set(base.concat(rules.always || []))].filter((u) => !never.has(u)).sort();
 }
 
 function dom(fixture, url) {
@@ -70,4 +83,4 @@ function dom(fixture, url) {
   return new JSDOM(html, { url, pretendToBeVisual: true });
 }
 
-module.exports = { bz, recipe, active, dom, storyGateRule, KIT, SCRIPT };
+module.exports = { bz, recipe, active, dom, allowed, KIT, SCRIPT };

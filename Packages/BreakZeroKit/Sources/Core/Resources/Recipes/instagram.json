@@ -1,6 +1,6 @@
 {
   "platform": "instagram",
-  "version": 2,
+  "version": 3,
   "minEngine": 1,
   "hosts": ["instagram.com", "www.instagram.com", "m.instagram.com"],
   "authHosts": ["accounts.instagram.com", "www.facebook.com", "m.facebook.com", "accountscenter.instagram.com"],
@@ -60,7 +60,7 @@
     "storyTray": "a[href^=\"/stories/\"]",
     "storyRoute": "^/stories/(?<user>[A-Za-z0-9._]+)(/|$)",
     "storyExempt": ["highlights"],
-    "storyAuthor": "header a[href]",
+    "storyAuthor": "section header a[href]",
     "caughtUpAfter": 20,
     "idleSeconds": 4,
     "scanRoutes": {

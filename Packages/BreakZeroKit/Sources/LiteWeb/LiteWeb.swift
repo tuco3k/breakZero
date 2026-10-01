@@ -5,13 +5,16 @@ import Foundation
 public struct LiteStrings: Codable, Sendable, Equatable {
     public var needsUpdate: String
     public var report: String
-    /// Old Instagram: the card that ends the friends-only feed.
+    /// Feed rules: the card that ends the feed.
     public var caughtUp: String
+    /// Feed rules: the one-tap hide button on a post.
+    public var hide: String
 
-    public init(needsUpdate: String, report: String, caughtUp: String = "You're all caught up") {
+    public init(needsUpdate: String, report: String, caughtUp: String = "You're all caught up", hide: String = "Hide") {
         self.needsUpdate = needsUpdate
         self.report = report
         self.caughtUp = caughtUp
+        self.hide = hide
     }
 }
 
@@ -28,8 +31,10 @@ public enum LiteScriptBuilder {
         var strings: LiteStrings
         var previousHref: String?
         var limits: LiteLimits
-        /// Old Instagram setup: read usernames on the user's Followers/Following/Close Friends pages.
+        /// Feed rules setup: read usernames on the user's Followers/Following/Close Friends pages.
         var scan: Bool
+        /// Feed rules auto-scroll sync of one list, or nil.
+        var sync: LiteSync?
     }
 
     /// Contents of bz-filter.js, loaded once.
@@ -41,10 +46,12 @@ public enum LiteScriptBuilder {
     }
 
     public static func configJSON(active: ActiveRecipe, state: NavigationState, strings: LiteStrings,
-                                  previousHref: String?, limits: LiteLimits = .none, scan: Bool = false) throws -> String {
+                                  previousHref: String?, limits: LiteLimits = .none, scan: Bool = false,
+                                  sync: LiteSync? = nil) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let config = Config(active: active, state: state, strings: strings, previousHref: previousHref, limits: limits, scan: scan)
+        let config = Config(active: active, state: state, strings: strings, previousHref: previousHref, limits: limits,
+                            scan: scan, sync: sync)
         let json = String(decoding: try encoder.encode(config), as: UTF8.self)
         // JSON is a JS expression, but keep the literal safe in every engine and context.
         return json
@@ -58,9 +65,9 @@ public enum LiteScriptBuilder {
     /// navigation delegate, URL observer) still hold.
     public static func userScript(filterSource: String, active: ActiveRecipe, state: NavigationState,
                                   strings: LiteStrings, previousHref: String?, limits: LiteLimits = .none,
-                                  scan: Bool = false) throws -> String {
+                                  scan: Bool = false, sync: LiteSync? = nil) throws -> String {
         let config = try configJSON(active: active, state: state, strings: strings, previousHref: previousHref,
-                                    limits: limits, scan: scan)
+                                    limits: limits, scan: scan, sync: sync)
         return """
         (function () {
         \(filterSource)
@@ -77,11 +84,28 @@ public enum LiteScriptBuilder {
     }
 
     /// JS that pushes new rules/limits into a live page (`window.__bzUpdate`), no reload.
-    public static func updateScript(active: ActiveRecipe, limits: LiteLimits, scan: Bool = false) throws -> String {
-        struct Update: Encodable { var active: ActiveRecipe; var limits: LiteLimits; var scan: Bool }
+    public static func updateScript(active: ActiveRecipe, limits: LiteLimits, scan: Bool = false,
+                                    sync: LiteSync? = nil) throws -> String {
+        struct Update: Encodable {
+            var active: ActiveRecipe
+            var limits: LiteLimits
+            var scan: Bool
+            var sync: LiteSync?
+
+            // `sync: null` must reach the page (it stops a running scroll), so encode it explicitly.
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(active, forKey: .active)
+                try c.encode(limits, forKey: .limits)
+                try c.encode(scan, forKey: .scan)
+                try c.encode(sync, forKey: .sync)
+            }
+
+            enum CodingKeys: String, CodingKey { case active, limits, scan, sync }
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let json = String(decoding: try encoder.encode(Update(active: active, limits: limits, scan: scan)), as: UTF8.self)
+        let json = String(decoding: try encoder.encode(Update(active: active, limits: limits, scan: scan, sync: sync)), as: UTF8.self)
             .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
             .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
         return "window.__bzUpdate && window.__bzUpdate(\(json));"
@@ -172,6 +196,26 @@ public enum MediaDiagnostics {
     }
 }
 
+/// Auto-scroll sync instruction for the page: scroll `owner`'s `list` at `pacing`.
+public struct LiteSync: Codable, Sendable, Equatable {
+    public var list: FriendsScanList
+    public var owner: String
+    public var pacing: SyncPacing
+
+    public init(list: FriendsScanList, owner: String, pacing: SyncPacing = .default) {
+        self.list = list
+        self.owner = owner
+        self.pacing = pacing
+    }
+}
+
+/// What the page reports about a running auto-scroll.
+public enum SyncPageEvent: String, Sendable, CaseIterable {
+    /// Reached the bottom and nothing more loads.
+    case end
+    case stalled, challenge, login, warning, leftPage
+}
+
 /// What native tells the page about limits: the platform is blocked (daily limit / schedule).
 public struct LiteLimits: Codable, Sendable, Equatable {
     public var blocked: String?
@@ -222,8 +266,13 @@ public enum LiteMessage: Equatable, Sendable {
     case violation(WatchdogViolation)
     /// Old Instagram setup: usernames read from profile links on one of the user's lists.
     case friendsScan(list: FriendsScanList, owner: String?, usernames: [String])
-    /// Old Instagram events for the log (no usernames): see `friendsEvents`.
+    /// Feed rules events for the log (no usernames): see `friendsEvents`.
     case friends(event: String)
+    /// Authors the feed rules hid on this page (for the status pill; never logged).
+    case friendsHidden(usernames: [String])
+    /// The one-tap "hide this account" on a post.
+    case hideAccount(username: String)
+    case syncEvent(list: FriendsScanList, event: SyncPageEvent)
 
     static let friendsEvents: Set<String> = ["forcedFollowing", "followingGaveUp", "caughtUp", "storySkipped",
                                              "storyClosed", "scanNoChecked"]
@@ -271,6 +320,17 @@ public enum LiteMessage: Equatable, Sendable {
         case "friends":
             guard let event = d["event"] as? String, friendsEvents.contains(event) else { return nil }
             return .friends(event: event)
+        case "friendsHidden":
+            let names = ((d["usernames"] as? [Any]) ?? []).prefix(100).compactMap { ($0 as? String).flatMap(Friends.normalize) }
+            return names.isEmpty ? nil : .friendsHidden(usernames: names)
+        case "hideAccount":
+            // A page script could post this too; hiding is only ever a narrowing.
+            guard let u = (d["username"] as? String).flatMap(Friends.normalize) else { return nil }
+            return .hideAccount(username: u)
+        case "syncEvent":
+            guard let list = (d["list"] as? String).flatMap(FriendsScanList.init(rawValue:)),
+                  let event = (d["event"] as? String).flatMap(SyncPageEvent.init(rawValue:)) else { return nil }
+            return .syncEvent(list: list, event: event)
         default:
             return nil
         }
@@ -278,9 +338,10 @@ public enum LiteMessage: Equatable, Sendable {
 
     static func parseState(_ any: Any?) -> NavigationState? {
         guard let d = any as? [String: Any] else { return nil }
-        guard let g = d["grant"] as? [String: Any] else { return NavigationState(grant: nil) }
+        let storyUser = (d["storyUser"] as? String).flatMap(Friends.normalize)
+        guard let g = d["grant"] as? [String: Any] else { return NavigationState(grant: nil, storyUser: storyUser) }
         guard let ruleID = g["ruleID"] as? String, let key = g["key"] as? String, let returnTo = g["returnTo"] as? String,
-              returnTo.hasPrefix("/") else { return NavigationState(grant: nil) }
-        return NavigationState(grant: .init(ruleID: ruleID, key: key, returnTo: returnTo))
+              returnTo.hasPrefix("/") else { return NavigationState(grant: nil, storyUser: storyUser) }
+        return NavigationState(grant: .init(ruleID: ruleID, key: key, returnTo: returnTo), storyUser: storyUser)
     }
 }

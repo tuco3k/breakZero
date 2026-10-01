@@ -10,16 +10,19 @@ public struct PlatformSettings: Codable, Sendable, Equatable {
     public var customBlocks: [String]
     /// User-added CSS selectors to hide (advanced rules).
     public var customHides: [String]
-    /// "Old Instagram" Friends list: normalized usernames, sorted (see `Friends`).
+    /// Feed rules "My list": normalized usernames, sorted (rev. 1's Friends list; see `Friends`).
     public var friends: [String]
+    /// Feed rules: who the feed and stories show, always/never lists (ARCHITECTURE.md §4c).
+    public var feedRules: FeedRules
 
     public init(toggles: [String: Bool] = [:], landing: String? = nil, customBlocks: [String] = [], customHides: [String] = [],
-                friends: [String] = []) {
+                friends: [String] = [], feedRules: FeedRules = FeedRules()) {
         self.toggles = toggles
         self.landing = landing
         self.customBlocks = customBlocks
         self.customHides = customHides
         self.friends = friends
+        self.feedRules = feedRules
     }
 
     // Missing keys default, so settings saved by an older build still load.
@@ -30,18 +33,19 @@ public struct PlatformSettings: Codable, Sendable, Equatable {
         customBlocks = try c.decodeIfPresent([String].self, forKey: .customBlocks) ?? []
         customHides = try c.decodeIfPresent([String].self, forKey: .customHides) ?? []
         friends = try c.decodeIfPresent([String].self, forKey: .friends) ?? []
+        if let rules = try c.decodeIfPresent(FeedRules.self, forKey: .feedRules) {
+            feedRules = rules
+        } else {
+            // Saved before feed rules (rev. 1): a Friends list kept the feed to that list. Keep it
+            // that way instead of silently widening to all mutuals (QUESTIONS #47).
+            feedRules = friends.isEmpty ? FeedRules() : FeedRules(feed: .myList, stories: .myList)
+        }
     }
 
     public static let `default` = PlatformSettings()
 
     public func isOn(_ toggle: String, in recipe: Recipe) -> Bool {
         toggles[toggle] ?? recipe.toggleDefault(toggle) ?? true
-    }
-
-    /// Old Instagram is active: the recipe supports it, its toggle is on and the list isn't empty.
-    public func friendsActive(in recipe: Recipe) -> Bool {
-        guard let f = recipe.friendsFilter else { return false }
-        return !friends.isEmpty && isOn(f.toggle, in: recipe)
     }
 }
 
@@ -53,18 +57,19 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
     public var recipe: Recipe
     public var landingPath: String
     public var shortForm: ShortFormMode
-    /// Old Instagram, when active (the page script's friends filter reads this). nil = off.
+    /// Feed rules, when they filter anything (the page script and the story gate read this).
     public var friends: ActiveFriends?
 
     /// - signedIn: false picks the recipe's signed-out landing (YouTube: search).
     /// - shortForm: `.budgetAllowed` drops every rule marked `shortForm`; `.forcedBlocked` keeps
     ///   them even when their toggle is off (budget used up / short-form schedule on).
+    /// - people: who is mutual (data), for the feed rules.
     public init(recipe: Recipe, settings: PlatformSettings = .default, signedIn: Bool = true,
-                shortForm: ShortFormMode = .togglesDecide) throws {
+                shortForm: ShortFormMode = .togglesDecide, people: PeopleData? = nil) throws {
         var r = recipe
-        let friendsActive = settings.friendsActive(in: recipe)
-        // While Old Instagram is active, its forced toggles (suggestions, sponsored) run regardless.
-        let forced = Set(friendsActive ? recipe.friendsFilter?.forcedToggles ?? [] : [])
+        let rulesOn = settings.feedRulesOn(in: recipe)
+        // While feed rules are on, suggestions and ads are always hidden (forced toggles).
+        let forced = Set(rulesOn ? recipe.friendsFilter?.forcedToggles ?? [] : [])
         let on = { (toggle: String) in forced.contains(toggle) || settings.isOn(toggle, in: recipe) }
         func keep(_ toggle: String, _ isShortForm: Bool?) -> Bool {
             guard isShortForm == true else { return on(toggle) }
@@ -89,15 +94,19 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
             Recipe.RouteRule(id: "custom.block.\(i)", toggle: Self.customToggle,
                              pattern: pattern.hasPrefix("^") ? pattern : "^" + pattern, action: .block)
         }
-        var gate: [Recipe.RouteRule] = []
-        if friendsActive, let f = recipe.friendsFilter {
-            let force = f.forceFollowingToggle.map(on) ?? false
-            gate = [Friends.storyGateRule(friends: settings.friends, filter: f, forceFollowing: force)]
-            self.friends = ActiveFriends(usernames: settings.friends, forceFollowing: force)
-        } else {
-            self.friends = nil
+        self.friends = nil
+        if rulesOn, let f = recipe.friendsFilter {
+            let feed = settings.allowed(.feed, people: people)
+            let stories = settings.allowed(.stories, people: people)
+            let never = settings.feedRules.never.sorted()
+            if feed != nil || stories != nil || !never.isEmpty {
+                let force = f.forceFollowingToggle.map(on) ?? false
+                self.friends = ActiveFriends(feed: feed, stories: stories, never: never, forceFollowing: force,
+                                             profileStories: settings.profileStories,
+                                             closePath: f.feedPath(forceFollowing: force))
+            }
         }
-        r.routes = custom + gate + r.routes
+        r.routes = custom + r.routes
         r.hide += settings.customHides.enumerated().map { i, selector in
             Recipe.HideRule(id: "custom.hide.\(i)", toggle: Self.customToggle, selector: selector)
         }

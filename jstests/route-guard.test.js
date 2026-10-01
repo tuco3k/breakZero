@@ -10,7 +10,7 @@ const vectors = JSON.parse(fs.readFileSync(path.join(KIT, 'Tests', 'CoreTests', 
 // The same table drives RuleEngineTests.testSharedRouteVectors in Swift.
 for (const seq of vectors.sequences) {
   test('route vectors: ' + seq.name, () => {
-    const c = bz.compile(active(seq.platform, seq.settings || {}, seq.signedIn !== false, seq.shortForm || 'togglesDecide'));
+    const c = bz.compile(active(seq.platform, seq.settings || {}, seq.signedIn !== false, seq.shortForm || 'togglesDecide', seq.people || null));
     let state = { grant: null };
     let current = null;
     seq.steps.forEach((step, i) => {

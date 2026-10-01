@@ -139,15 +139,37 @@ final class LiteScriptBuilderTests: XCTestCase {
         XCTAssertNil(LiteMessage.parse(["type": "friends", "event": "alice"]))
     }
 
-    func testOldInstagramReachesThePage() throws {
-        let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(.instagram), settings: PlatformSettings(friends: ["alice"]))
-        let json = try LiteScriptBuilder.configJSON(active: active, state: .init(), strings: strings, previousHref: nil, scan: true)
-        XCTAssertTrue(json.contains(#""friends":{"forceFollowing":true,"usernames":["alice"]}"#))
+    func testFeedRulesReachThePage() throws {
+        let people = PeopleData(followers: ["alice", "fan"], following: ["alice", "brand"])
+        let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(.instagram), settings: PlatformSettings(), people: people)
+        let sync = LiteSync(list: .followers, owner: "me")
+        let json = try LiteScriptBuilder.configJSON(active: active, state: .init(storyUser: "brand"), strings: strings,
+                                                    previousHref: nil, scan: true, sync: sync)
+        XCTAssertTrue(json.contains(#""friends":{"closePath":"/?variant=following","feed":["alice"],"forceFollowing":true,"never":[],"profileStories":true,"stories":["alice"]}"#), json)
         XCTAssertTrue(json.contains(#""scan":true"#))
+        XCTAssertTrue(json.contains(#""sync":{"list":"followers","owner":"me","pacing":{"#))
+        XCTAssertTrue(json.contains(#""storyUser":"brand""#))
         XCTAssertTrue(json.contains(#""caughtUp":"You're all caught up""#))
-        XCTAssertTrue(try LiteScriptBuilder.updateScript(active: active, limits: .none, scan: false).contains(#""scan":false"#))
+        XCTAssertTrue(json.contains(#""hide":"Hide""#))
+        let stop = try LiteScriptBuilder.updateScript(active: active, limits: .none, scan: false, sync: nil)
+        XCTAssertTrue(stop.contains(#""sync":null"#), "a null sync must reach the page to stop the scroll")
         let off = try ActiveRecipe(recipe: RecipeLibrary.bundled(.instagram))
         XCTAssertFalse(try LiteScriptBuilder.configJSON(active: off, state: .init(), strings: strings, previousHref: nil)
-            .contains(#""friends":{"#))
+            .contains(#""friends":{"#), "no data yet: nothing to filter")
+    }
+
+    func testFeedRulesMessagesAreValidated() {
+        XCTAssertEqual(LiteMessage.parse(["type": "hideAccount", "username": "@Brand"]), .hideAccount(username: "brand"))
+        XCTAssertNil(LiteMessage.parse(["type": "hideAccount", "username": "not valid"]))
+        XCTAssertEqual(LiteMessage.parse(["type": "friendsHidden", "usernames": ["Brand", 3, "x y", "celeb"]]),
+                       .friendsHidden(usernames: ["brand", "celeb"]))
+        XCTAssertNil(LiteMessage.parse(["type": "friendsHidden", "usernames": []]))
+        XCTAssertEqual(LiteMessage.parse(["type": "syncEvent", "list": "following", "event": "challenge"]),
+                       .syncEvent(list: .following, event: .challenge))
+        XCTAssertNil(LiteMessage.parse(["type": "syncEvent", "list": "following", "event": "explode"]))
+        XCTAssertEqual(LiteMessage.parse(["type": "route", "href": "h", "state": ["grant": NSNull(), "storyUser": "Brand"]]),
+                       .route(href: "h", state: NavigationState(grant: nil, storyUser: "brand")))
+        XCTAssertEqual(LiteMessage.parse(["type": "route", "href": "h", "state": ["storyUser": "../x"]]),
+                       .route(href: "h", state: NavigationState()), "only a valid username")
     }
 }

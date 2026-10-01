@@ -73,7 +73,7 @@
     };
   }
 
-  // ---------------------------------------------------------------- Old Instagram (§4c)
+  // ---------------------------------------------------------------- Feed rules (§4c rev. 2)
 
   var GATE_ID = 'ig.friends.storyGate';
   var FR_ATTR = 'data-bz-fr';
@@ -86,12 +86,19 @@
     return o;
   }
 
-  /* Active only when native sent a Friends list (`active.friends`); see ActiveRecipe. */
+  /*
+   * Active only when native sent feed rules that filter something (`active.friends`, see
+   * ActiveRecipe): per-surface allowed sets (null = everyone) and the never-show set.
+   */
   function compileFriends(ff, active) {
-    if (!ff || !active || !active.usernames || !active.usernames.length) return null;
+    if (!ff || !active) return null;
     return {
-      set: setOf(active.usernames),
+      feed: active.feed ? setOf(active.feed) : null,
+      stories: active.stories ? setOf(active.stories) : null,
+      never: setOf(active.never),
       forceFollowing: !!active.forceFollowing,
+      profileStories: active.profileStories !== false,
+      closePath: active.closePath || ff.feedPath || '/',
       feedRoutes: (ff.feedRoutes || []).map(re),
       feedPath: ff.feedPath || '/',
       followingQuery: ff.followingQuery || null,
@@ -108,7 +115,14 @@
     };
   }
 
-  /* The setup collector works before any friend exists, so it doesn't depend on `active.friends`. */
+  /* Mirrors ActiveFriends.allows: never beats everything; null set = everyone. */
+  function allows(f, surface, u) {
+    if (!u || f.never[u]) return false;
+    var set = surface === 'feed' ? f.feed : f.stories;
+    return set === null || !!set[u];
+  }
+
+  /* The setup collectors work before any rule exists, so they don't depend on `active.friends`. */
   function compileScan(ff) {
     if (!ff || !ff.scanRoutes) return null;
     var routes = {};
@@ -139,6 +153,39 @@
     return null;
   }
 
+  function storyUserOf(f, path) {
+    var m = f.storyRoute.exec(path || '');
+    return m && m.groups && m.groups.user ? m.groups.user.toLowerCase() : null;
+  }
+
+  function trimSlash(p) {
+    return p.length > 1 && p.charAt(p.length - 1) === '/' ? p.slice(0, -1) : p;
+  }
+
+  /*
+   * Story gate: mirror of StoryGate.decide in RuleEngine.swift (shared route vectors).
+   * `state.storyUser` = the person whose stories were opened from their profile on purpose.
+   */
+  function storyDecision(f, user, here, previousPath, previous, state) {
+    if (f.storyExempt[user]) return { type: 'allow' };
+    if (state.storyUser) {
+      if (state.storyUser === user) return { type: 'allow' };
+      var opened = state.storyUser;
+      state.storyUser = null;
+      return redirectUnlessHere('/' + opened + '/', here, 'bounced', GATE_ID);
+    }
+    if (allows(f, 'stories', user)) return { type: 'allow' };
+    var fromProfile = previousPath != null && trimSlash(previousPath).toLowerCase() === '/' + user;
+    if (fromProfile) {
+      if (f.profileStories && !f.never[user]) { state.storyUser = user; return { type: 'allow' }; }
+      return redirectUnlessHere('/' + user + '/', here, 'bounced', GATE_ID);
+    }
+    if (previousPath != null && previous != null && storyUserOf(f, previousPath) === null && !isFeed(f, previousPath)) {
+      return redirectUnlessHere(previous, here, 'bounced', GATE_ID);
+    }
+    return redirectUnlessHere(f.closePath, here, 'redirected', GATE_ID);
+  }
+
   function hasQuery(search, query) {
     return ('&' + String(search || '').replace(/^\?/, '') + '&').indexOf('&' + query + '&') >= 0;
   }
@@ -152,25 +199,33 @@
   }
 
   /*
-   * Feed pass: mark friend posts and tray items ok (default-deny CSS hides the rest), record the
-   * tray order (for story skipping) and decide when the feed is "caught up". Re-checks every post
-   * every time: React reuses nodes for new content. Returns { posts, okPosts, run, caughtUp }.
+   * Feed pass: mark allowed posts and tray items ok (default-deny CSS hides the rest), record the
+   * tray order (for story skipping), collect who was hidden (status pill) and decide when the feed
+   * is "caught up". Re-checks every post every time: React reuses nodes for new content.
+   * Returns { posts, okPosts, run, caughtUp, hidden: [usernames] }.
    */
   function runFriendsFeed(c, doc, path, base, fs, now) {
     var f = c.friends;
-    var out = { posts: 0, okPosts: 0, run: 0, caughtUp: false };
+    var out = { posts: 0, okPosts: 0, run: 0, caughtUp: false, hidden: [] };
     if (!f || !isFeed(f, path)) return out;
+    var seen = fs.hiddenSeen || (fs.hiddenSeen = Object.create(null));
+    function hid(u) {
+      if (u && !seen[u]) { seen[u] = true; out.hidden.push(u); }
+    }
     var posts = doc.querySelectorAll(f.post);
     var lastOk = null;
     for (var i = 0; i < posts.length; i++) {
       var author = firstProfile(c, f, posts[i], base);
-      if (author && f.set[author]) {
+      if (allows(f, 'feed', author)) {
         if (posts[i].getAttribute(FR_ATTR) !== 'ok') posts[i].setAttribute(FR_ATTR, 'ok');
+        posts[i].setAttribute('data-bz-author', author);
+        ensureHideButton(doc, posts[i], author, fs);
         lastOk = posts[i];
         out.okPosts++;
         out.run = 0;
       } else {
         if (posts[i].hasAttribute(FR_ATTR)) posts[i].removeAttribute(FR_ATTR);
+        hid(author);
         out.run++;
       }
     }
@@ -179,12 +234,12 @@
     var tray = doc.querySelectorAll(f.storyTray);
     var order = [];
     for (var j = 0; j < tray.length; j++) {
-      var m = f.storyRoute.exec(anchorPath(c, tray[j], base) || '');
-      var u = m && m.groups && m.groups.user ? m.groups.user.toLowerCase() : null;
-      if (u && f.set[u]) {
+      var u = storyUserOf(f, anchorPath(c, tray[j], base) || '');
+      if (u && (allows(f, 'stories', u) || f.storyExempt[u])) {
         if (tray[j].getAttribute(FR_ATTR) !== 'ok') tray[j].setAttribute(FR_ATTR, 'ok');
-      } else if (tray[j].hasAttribute(FR_ATTR)) {
-        tray[j].removeAttribute(FR_ATTR);
+      } else {
+        if (tray[j].hasAttribute(FR_ATTR)) tray[j].removeAttribute(FR_ATTR);
+        hid(u);
       }
       if (u && order.indexOf(u) < 0) order.push(u);
     }
@@ -202,7 +257,32 @@
   }
 
   /*
-   * "You're all caught up": our card goes after the last friend post (or before the first post),
+   * One-tap "hide this account": our own small button over the corner of a shown post (an
+   * addition; nothing of the site's changes). Tapping it posts `hideAccount` to native (narrowing,
+   * instant) and hides the post here at once.
+   */
+  function ensureHideButton(doc, post, author, fs) {
+    var btn = post.querySelector('button[data-bz="hide"]');
+    if (btn && btn.getAttribute('data-bz-user') === author) return;
+    if (btn) btn.parentNode.removeChild(btn);
+    btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.setAttribute('data-bz', 'hide');
+    btn.setAttribute('data-bz-user', author);
+    btn.setAttribute('aria-label', (fs.hideLabel || 'Hide') + ' @' + author);
+    btn.textContent = fs.hideText || 'Hide';
+    btn.style.cssText = 'position:absolute;top:10px;right:52px;z-index:5;border:0;border-radius:12px;' +
+      'padding:3px 9px;font:600 12px -apple-system,system-ui,sans-serif;background:rgba(127,127,127,.18);color:inherit';
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (fs.onHide) fs.onHide(author);
+    }, true);
+    post.appendChild(btn);
+  }
+
+  /*
+   * "You're all caught up": our card goes after the last shown post (or before the first post),
    * and everything after it inside <main> is hidden, so the rest of the list and the site's loader
    * stay out of view and loading stops. Our own element; the site's nodes are only hidden.
    */
@@ -242,24 +322,37 @@
   }
 
   /*
-   * Story viewer: ok only when the user in the URL is a friend (or exempt, e.g. highlights) and the
-   * author shown in the viewer header, if any, is a friend. Marks <html data-bz-story-ok=path>;
-   * CSS keeps the viewer hidden until then. Returns null when fine, else { user, author }.
+   * Story viewer: ok only when the gate let this person through (allowed, or opened from their
+   * profile: `ctx.storyUser`; highlights opened from a profile: `ctx.highlightFrom`) and the author
+   * shown in the viewer header, if any, passes the same test. Marks <html data-bz-story-ok=path>;
+   * CSS keeps the viewer hidden until then. Returns null when fine, else { user, author, back }
+   * (`back` = the profile to return to, if the story was opened from one).
    */
-  function runFriendsStory(c, doc, path, base) {
+  function runFriendsStory(c, doc, path, base, ctx) {
     var f = c.friends;
     var root = doc.documentElement;
-    var m = f ? f.storyRoute.exec(path) : null;
-    if (!m) {
+    var user = f ? storyUserOf(f, path) : null;
+    if (user === null) {
       if (root.hasAttribute(STORY_OK_ATTR)) root.removeAttribute(STORY_OK_ATTR);
       return null;
     }
-    var user = m.groups && m.groups.user ? m.groups.user.toLowerCase() : '';
+    ctx = ctx || {};
+    var opened = ctx.storyUser || null;
     var exempt = !!f.storyExempt[user];
+    function passes(u) {
+      if (!u || f.never[u]) return false;
+      return allows(f, 'stories', u) || u === opened || (f.profileStories && u === ctx.highlightFrom);
+    }
+    // Only the viewer's own header counts. Until the site draws the viewer, the page we came from
+    // is still in the DOM: its posts' headers (also hidden ones) and nav must never be read as the
+    // story's author.
     var author = null;
     var heads = doc.querySelectorAll(f.storyAuthor);
-    for (var i = 0; i < heads.length && !author; i++) author = firstProfile(c, f, heads[i], base);
-    var ok = (exempt || f.set[user]) && (author ? !!f.set[author] : !exempt);
+    for (var i = 0; i < heads.length && !author; i++) {
+      if (heads[i].closest('article') || heads[i].closest('nav') || (f.post && heads[i].closest(f.post))) continue;
+      author = firstProfile(c, f, heads[i], base);
+    }
+    var ok = exempt ? passes(author) : passes(user) && (!author || author === user || passes(author));
     if (ok) {
       if (root.getAttribute(STORY_OK_ATTR) !== path) root.setAttribute(STORY_OK_ATTR, path);
       return null;
@@ -267,30 +360,33 @@
     if (root.hasAttribute(STORY_OK_ATTR)) root.removeAttribute(STORY_OK_ATTR);
     // Exempt (highlights) with no author found yet: stay hidden, but it's not a violation yet.
     if (exempt && !author) return null;
-    return { user: exempt ? author : user, author: author };
+    var back = opened || (exempt ? ctx.highlightFrom : null) || null;
+    return { user: exempt ? author : user, author: author, back: back ? '/' + back + '/' : null };
   }
 
-  /* Next friend after `user` in the tray order we saw, skipping ones tried in this chain. */
-  function nextFriendStory(f, order, user, tried) {
+  /* Next allowed person after `user` in the tray order we saw. */
+  function nextFriendStory(f, order, user) {
     var list = order || [];
     var i = list.indexOf(user);
     for (var k = i + 1; k < list.length; k++) {
-      if (f.set[list[k]] && !(tried && tried[list[k]])) return '/stories/' + list[k] + '/';
+      if (allows(f, 'stories', list[k])) return '/stories/' + list[k] + '/';
     }
     return null;
   }
 
   /*
-   * Setup collector: on the user's own Followers / Following / Close Friends page, read the
-   * usernames of profile links already on screen. Read-only; never fetches. Close Friends: only
-   * rows whose checkbox is checked. Returns { list, owner, usernames } of names not sent before.
+   * List collector (manual scan and auto-scroll sync): on the user's own Followers / Following /
+   * Close Friends page, read the usernames of profile links already on screen. Read-only; never
+   * fetches. Close Friends: only rows whose checkbox is checked. `only` restricts it to one list.
+   * Returns { list, owner, usernames } of names not sent before.
    */
-  function runScan(c, doc, path, base, sent) {
+  function runScan(c, doc, path, base, sent, only) {
     var sc = c.scan;
     if (!sc) return null;
     var list = null, owner = null;
     Object.keys(sc.routes).forEach(function (k) {
-      var m = !list && sc.routes[k].exec(path);
+      if (list || (only && k !== only)) return;
+      var m = sc.routes[k].exec(path);
       if (m) { list = k; owner = m.groups && m.groups.owner ? m.groups.owner.toLowerCase() : null; }
     });
     if (!list) return null;
@@ -319,10 +415,46 @@
     return { list: list, owner: owner, usernames: names.slice(0, 500) };
   }
 
+  var SYNC_STOP_ROUTES = [
+    { re: /^\/(challenge|checkpoint)(\/|$)/, event: 'challenge' },
+    { re: /^\/accounts\/(suspended|disabled)(\/|$)/, event: 'challenge' },
+    { re: /^\/accounts\/login(\/|$)/, event: 'login' }
+  ];
+
+  /*
+   * Auto-scroll must stop at once when Instagram objects: a challenge/checkpoint or login page, or
+   * any dialog that isn't the list itself (e.g. "Try again later"). Structure only, never text.
+   * Returns 'challenge' | 'login' | 'warning' | null.
+   */
+  function syncWarning(c, doc, path, base) {
+    for (var i = 0; i < SYNC_STOP_ROUTES.length; i++) {
+      if (SYNC_STOP_ROUTES[i].re.test(path)) return SYNC_STOP_ROUTES[i].event;
+    }
+    var sc = c.scan;
+    var dialogs = doc.querySelectorAll('[role="dialog"],[role="alertdialog"]');
+    for (var j = 0; j < dialogs.length; j++) {
+      var d = dialogs[j];
+      if (d.closest('[data-bz]')) continue;
+      var hasList = sc && firstProfile(c, sc, d, base) !== null;
+      if (!hasList) return 'warning';
+    }
+    return null;
+  }
+
+  /* Delay before the next auto-scroll step (ms), from native's pacing and a random in [0, 1). */
+  function syncDelay(pacing, step, random) {
+    var p = pacing || {};
+    var minStep = p.minStep || 2, maxStep = p.maxStep || 4;
+    if (p.pauseEvery && step > 0 && step % p.pauseEvery === 0) {
+      return Math.round(1000 * ((p.minPause || 8) + random * ((p.maxPause || 15) - (p.minPause || 8))));
+    }
+    return Math.round(1000 * (minStep + random * (maxStep - minStep)));
+  }
+
   /*
    * Friends canaries: a post permalink visible outside any post container (the `post` selector no
-   * longer matches, so default deny can't hide it), or a story link to a non-friend outside the tray
-   * selector. Offenders are blurred. Returns failed canary ids.
+   * longer matches, so default deny can't hide it), or a story link to someone the rules hide,
+   * outside the tray selector. Offenders are blurred. Returns failed canary ids.
    */
   function runFriendsCanaries(c, doc, path, base) {
     var f = c.friends;
@@ -341,9 +473,8 @@
         safeAncestor(a, 3, doc, total).setAttribute(BLUR_ATTR, 'ig.canary.friendsPost');
         post = true;
       }
-      var m = f.storyRoute.exec(p);
-      var u = m && m.groups && m.groups.user ? m.groups.user.toLowerCase() : null;
-      if (u && !f.set[u] && !f.storyExempt[u] && !a.matches(f.storyTray)) {
+      var u = storyUserOf(f, p);
+      if (u && !allows(f, 'stories', u) && !f.storyExempt[u] && !a.matches(f.storyTray)) {
         a.setAttribute(BLUR_ATTR, 'ig.canary.friendsStory');
         story = true;
       }
@@ -409,6 +540,12 @@
     path = path || '/';
     var here = query != null ? path + '?' + query : path;
     var previousPath = previous != null ? stripQuery(previous) : null;
+    var f = c.friends;
+    if (f) {
+      var storyOwner = storyUserOf(f, path);
+      if (storyOwner !== null) return storyDecision(f, storyOwner, here, previousPath, previous, state);
+      state.storyUser = null;
+    }
     for (var i = 0; i < c.routes.length; i++) {
       var rule = c.routes[i].rule;
       var m = c.routes[i].re.exec(path);
@@ -656,7 +793,7 @@
     if (limits && limits.blocked) {
       return { reason: 'limit', detail: String(limits.blocked), ruleID: null, to: c.landingPath };
     }
-    var copy = { grant: state && state.grant ? state.grant : null };
+    var copy = { grant: state && state.grant ? state.grant : null, storyUser: state && state.storyUser ? state.storyUser : null };
     var d;
     try { d = decideURL(c, href, null, copy); } catch (e) { return null; }
     if (d.type === 'redirect') return { reason: d.reason, detail: null, ruleID: d.ruleID, to: d.to };
@@ -675,7 +812,8 @@
    * { active: ActiveRecipe, state: {grant}, strings: {needsUpdate, report}, previousHref,
    *   limits: { blocked: reason | null } }
    * hooks (tests only): `replace(url)` / `assign(url)` instead of navigating (jsdom can't),
-   * `setInterval(fn, ms)` instead of a real timer, `now()` instead of Date.now.
+   * `setInterval(fn, ms)` / `setTimeout(fn, ms)` instead of real timers, `now()` instead of
+   * Date.now, `random()` instead of Math.random, `scrollOnce()` → { atBottom } instead of scrolling.
    */
   function install(win, config, hooks) {
     var doc = win.document;
@@ -683,19 +821,34 @@
     var assign = (hooks && hooks.assign) || function (u) { win.location.assign(u); };
     var clock = (hooks && hooks.now) || function () { return Date.now(); };
     var every = (hooks && hooks.setInterval) || function (fn, ms) { return win.setInterval(fn, ms); };
+    var later = (hooks && hooks.setTimeout) || function (fn, ms) { return win.setTimeout(fn, ms); };
+    var cancelLater = (hooks && hooks.clearTimeout) || function (t) { win.clearTimeout(t); };
+    var random = (hooks && hooks.random) || Math.random;
     var c = compile(config.active);
     var limits = config.limits || { blocked: null };
     var lastViolationAt = 0;
     var state = config.state || { grant: null };
+    if (state.storyUser === undefined) state.storyUser = null;
     var strings = config.strings || {};
     var lastHref = win.location.href;
     var ctx = { lastEndedAt: 0, lastGestureAt: 0, now: 0 };
     var scheduled = false;
     var overlay = null;
-    // Old Instagram: per-page state. The tray order survives the full loads a story skip does.
+    // Feed rules: per-page state. The tray order survives the full loads a story skip does.
     var scanOn = !!config.scan;
+    var syncCfg = config.sync || null;
+    var sync = null;
     var fs = { postCount: -1, lastNewPostAt: 0, trayOrder: session('bz.tray') || [], card: null, cardHref: null,
-               caughtUpText: strings.caughtUp, scanSent: {}, scanNoChecked: false, gaveUp: false };
+               caughtUpText: strings.caughtUp, hideText: strings.hide, hideLabel: strings.hide,
+               scanSent: {}, scanNoChecked: false, gaveUp: false, highlightFrom: session('bz.hl') || null,
+               hiddenSeen: Object.create(null), onHide: hideAccount };
+
+    /* One-tap hide: hidden here at once; native adds them to Never show (narrowing, instant). */
+    function hideAccount(u) {
+      if (c.friends) c.friends.never[u] = true;
+      post({ type: 'hideAccount', username: u });
+      schedule();
+    }
 
     function session(key, value) {
       try {
@@ -731,22 +884,39 @@
       schedule();
     }
 
-    /* Story viewer: synchronous, so a non-friend story is caught before the next frame. */
+    /* Story viewer: synchronous, so a story the rules hide is caught before the next frame. */
     function checkStory() {
       try {
-        var v = runFriendsStory(c, doc, win.location.pathname, win.location.href);
-        if (v) violate({ reason: 'redirected', detail: null, ruleID: GATE_ID, to: storyTarget(v.user) });
+        var v = runFriendsStory(c, doc, win.location.pathname, win.location.href,
+          { storyUser: state.storyUser, highlightFrom: fs.highlightFrom });
+        if (v) {
+          violate({ reason: v.back ? 'bounced' : 'redirected', detail: null, ruleID: GATE_ID,
+                    to: v.back || storyTarget(v.user) });
+        }
       } catch (e) { post({ type: 'filterError', id: 'friends.story' }); }
     }
 
-    /* Where a gated story goes: the next friend in the tray we saw, else back to the feed. */
+    /* Where a gated story goes from the feed: the next allowed person in the tray, else the feed. */
     function storyTarget(user) {
       var f = c.friends;
       if (!f) return c.landingPath;
       var next = nextFriendStory(f, fs.trayOrder, user);
       post({ type: 'friends', event: next ? 'storySkipped' : 'storyClosed' });
-      if (next) return next;
-      return f.feedPath + (f.forceFollowing && f.followingQuery ? '?' + f.followingQuery : '');
+      return next || f.closePath;
+    }
+
+    /* Highlights carry no username in the URL: remember the profile they were opened from. */
+    function noteHighlight(targetHref, fromHref) {
+      var f = c.friends;
+      if (!f) return;
+      try {
+        var to = new URL(targetHref, win.location.href).pathname;
+        var owner = storyUserOf(f, to);
+        if (owner === null) { fs.highlightFrom = null; session('bz.hl', null); return; }
+        if (!f.storyExempt[owner] || !fromHref) return;
+        var from = profileUser(f, new URL(fromHref, win.location.href).pathname);
+        if (from) { fs.highlightFrom = from; session('bz.hl', from); }
+      } catch (e) { /* keep the last context */ }
     }
 
     function storyUser(href) {
@@ -785,15 +955,16 @@
       // Backstop: a URL change we didn't see (e.g. a router holding an old reference).
       if (href !== lastHref) onURLChanged(lastHref);
       runHeuristics(c, doc, path, href, post);
+      var feedPass = null;
       try {
-        runFriendsFeed(c, doc, path, href, fs, clock());
+        feedPass = runFriendsFeed(c, doc, path, href, fs, clock());
         if (fs.card && fs.cardHref === null) {
           fs.cardHref = path + win.location.search;
           post({ type: 'friends', event: 'caughtUp' });
         }
       } catch (e) { post({ type: 'filterError', id: 'friends.feed' }); }
       checkStory();
-      if (scanOn) {
+      if (scanOn && !sync) {
         try {
           var r = runScan(c, doc, path, href, fs.scanSent);
           if (r && r.noCheckboxes) {
@@ -804,6 +975,7 @@
         } catch (e) { post({ type: 'filterError', id: 'friends.scan' }); }
       }
       if (fs.trayOrder.length) session('bz.tray', fs.trayOrder);
+      if (feedPass && feedPass.hidden.length) post({ type: 'friendsHidden', usernames: feedPass.hidden.slice(0, 100) });
       var failed = runCanaries(c, doc, path, href, post);
       try { failed = failed.concat(runFriendsCanaries(c, doc, path, href)); } catch (e) {
         failed.push('ig.canary.friends');
@@ -847,7 +1019,8 @@
 
     function check(targetHref, fromHref) {
       var d = decideURL(c, targetHref, fromHref, state);
-      if (d.type === 'redirect' && d.ruleID === GATE_ID) d.to = storyTarget(storyUser(targetHref));
+      if (d.type === 'redirect' && d.ruleID === GATE_ID && d.reason === 'redirected') d.to = storyTarget(storyUser(targetHref));
+      if (d.type === 'allow') noteHighlight(targetHref, fromHref);
       if (d.type === 'allow' && fromHref) {
         ctx.now = Date.now();
         if (isAutoAdvance(c, new URL(fromHref), new URL(targetHref), ctx)) {
@@ -860,7 +1033,8 @@
     function enforce(d, fromHref) {
       if (d.type === 'redirect') {
         post({ type: 'redirect', reason: d.reason, ruleID: d.ruleID, state: state });
-        replace(d.to);
+        // Already there (e.g. a story ring on the profile you're on): just don't go. No reload.
+        if (d.to !== win.location.pathname + win.location.search) replace(d.to);
         return false;
       }
       if (d.type === 'refuse') {
@@ -996,7 +1170,7 @@
           refresh();
         }
         var v = watchdogCheck(c, win.location.href, state, limits);
-        if (v && v.ruleID === GATE_ID) v.to = storyTarget(storyUser(win.location.href));
+        if (v && v.ruleID === GATE_ID && v.reason === 'redirected') v.to = storyTarget(storyUser(win.location.href));
         if (v) violate(v);
         schedule();
       } catch (e) {
@@ -1008,6 +1182,75 @@
     ['hashchange', 'pageshow', 'focus'].forEach(function (t) { win.addEventListener(t, watchdog); });
     doc.addEventListener('visibilitychange', function () { if (!doc.hidden) watchdog(); });
 
+    /*
+     * Auto-scroll sync (ARCHITECTURE.md §4c rev. 2): visibly scroll the user's own list at native's
+     * pace, reading names as they load. Stops at once on a challenge, login or dialog; reports the
+     * end or a stall. Native decides caps and what to keep (SyncSession).
+     */
+    function setSync(next) {
+      var same = next && syncCfg && next.list === syncCfg.list && next.owner === syncCfg.owner;
+      syncCfg = next;
+      if (same && sync) return;
+      stopSync();
+      if (syncCfg) startSync();
+    }
+
+    function startSync() {
+      sync = { list: syncCfg.list, owner: syncCfg.owner, step: 0, quiet: 0, sent: {}, timer: null };
+      sync.timer = later(syncStep, syncDelay(syncCfg.pacing, 0, random()));
+    }
+
+    function stopSync() {
+      if (sync && sync.timer !== null) cancelLater(sync.timer);
+      sync = null;
+    }
+
+    function endSync(event) {
+      var list = sync ? sync.list : (syncCfg && syncCfg.list);
+      stopSync();
+      post({ type: 'syncEvent', list: list, event: event });
+    }
+
+    function scrollOnce() {
+      if (hooks && hooks.scrollOnce) return hooks.scrollOnce();
+      var first = doc.querySelector('main a[href]') || doc.querySelector('a[href]');
+      var el = first;
+      while (el && el !== doc.body) {
+        var st = win.getComputedStyle(el);
+        if ((st.overflowY === 'auto' || st.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 10) break;
+        el = el.parentElement;
+      }
+      var box = el && el !== doc.body ? el : (doc.scrollingElement || doc.documentElement);
+      var view = box === doc.scrollingElement || box === doc.documentElement ? win.innerHeight : box.clientHeight;
+      box.scrollTop = box.scrollTop + Math.round(view * 0.8);
+      return { atBottom: box.scrollTop + view >= box.scrollHeight - 4 };
+    }
+
+    function syncStep() {
+      if (!sync || !syncCfg) return;
+      sync.timer = null;
+      try {
+        var path = win.location.pathname;
+        var w = syncWarning(c, doc, path, win.location.href);
+        if (w) { endSync(w); return; }
+        var r = runScan(c, doc, path, win.location.href, sync.sent, sync.list);
+        if (!r || r.owner !== sync.owner) { endSync('leftPage'); return; }
+        if (r.usernames.length) {
+          sync.quiet = 0;
+          post({ type: 'friendsScan', list: r.list, owner: r.owner, usernames: r.usernames });
+        } else {
+          sync.quiet++;
+        }
+        var pos = scrollOnce();
+        if (sync.quiet >= 5) { endSync(pos.atBottom ? 'end' : 'stalled'); return; }
+        sync.step++;
+        sync.timer = later(syncStep, syncDelay(syncCfg.pacing, sync.step, random()));
+      } catch (e) {
+        post({ type: 'filterError', id: 'friends.sync' });
+        endSync('stalled');
+      }
+    }
+
     // Native pushes new rules/limits here (budget ran out, schedule started) without a reload.
     // Page scripts could call it too; the native watchdog checks independently every second.
     win.__bzUpdate = function (next) {
@@ -1015,6 +1258,7 @@
         if (next && next.active) c = compile(next.active);
         if (next && next.limits) limits = next.limits;
         if (next && typeof next.scan === 'boolean') { scanOn = next.scan; fs.scanSent = {}; fs.scanNoChecked = false; }
+        if (next && 'sync' in next) setSync(next.sync || null);
         refresh();
         watchdog();
       } catch (e) {
@@ -1028,6 +1272,7 @@
     else maybeForceFollowing();
     refresh();
     if (limits.blocked) watchdog();
+    if (syncCfg) startSync();
 
     return {
       state: state,
@@ -1037,7 +1282,9 @@
       refresh: refresh,
       watchdog: watchdog,
       ctx: ctx,
-      friendsState: fs
+      friendsState: fs,
+      get sync() { return sync; },
+      syncStep: syncStep
     };
   }
 
@@ -1055,6 +1302,10 @@
     mediaReport: mediaReport,
     watchdogCheck: watchdogCheck,
     GATE_ID: GATE_ID,
+    allows: allows,
+    storyDecision: storyDecision,
+    syncWarning: syncWarning,
+    syncDelay: syncDelay,
     profileUser: profileUser,
     followingTarget: followingTarget,
     runFriendsFeed: runFriendsFeed,

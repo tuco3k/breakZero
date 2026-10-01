@@ -25,7 +25,12 @@ public enum PolicyChange: Codable, Sendable, Equatable {
     case setShortFormBudget(minutes: Int)
     case addSchedule(ScheduleRule)
     case removeSchedule(id: String)
-    /// Old Instagram Friends list (normalized usernames, see `Friends.normalize`).
+    /// Feed rules (ARCHITECTURE.md §4c). Usernames are normalized (`Friends.normalize`).
+    case setAudience(Platform, FeedSurface, Audience)
+    case addPerson(Platform, PeopleList, username: String)
+    case removePerson(Platform, PeopleList, username: String)
+    case setProfileStories(Platform, Bool)
+    /// rev. 1 names for My list; kept so pending changes saved by that build still load.
     case addFriend(Platform, username: String)
     case removeFriend(Platform, username: String)
 
@@ -50,7 +55,10 @@ public enum PolicyChange: Codable, Sendable, Equatable {
         case .setShortFormBudget: "limit/shortForm"
         case let .addSchedule(rule): "schedule/\(rule.id)"
         case let .removeSchedule(id): "schedule/\(id)"
-        case let .addFriend(p, u), let .removeFriend(p, u): "friend/\(p.rawValue)/\(u)"
+        case let .setAudience(p, surface, _): "audience/\(p.rawValue)/\(surface.rawValue)"
+        case let .addPerson(p, list, u), let .removePerson(p, list, u): "person/\(p.rawValue)/\(list.rawValue)/\(u)"
+        case let .addFriend(p, u), let .removeFriend(p, u): "person/\(p.rawValue)/myList/\(u)"
+        case let .setProfileStories(p, _): "profileStories/\(p.rawValue)"
         }
     }
 }
@@ -194,17 +202,24 @@ public struct Ratchet: Sendable {
             return old == rule ? .neutral : .loosening
         case let .removeSchedule(id):
             return policy.limits.schedules.contains { $0.id == id } ? .loosening : .neutral
+        case let .setAudience(p, surface, new):
+            // Everyone is the widest; mutuals / my list / close friends aren't subsets of each other,
+            // so a move between them counts as widening (QUESTIONS #51).
+            let old = policy.settings(for: p).audience(surface)
+            guard feedRulesOn(p, policy), new != old else { return .neutral }
+            if new == .everyone { return .loosening }
+            return old == .everyone ? .tightening : .loosening
+        case let .addPerson(p, list, u):
+            return classifyList(p, list, u, adding: true, policy)
+        case let .removePerson(p, list, u):
+            return classifyList(p, list, u, adding: false, policy)
         case let .addFriend(p, u):
-            // Showing one more person is a loosening, except the first friend: an empty list means
-            // the filter is off, so the first one switches it on.
-            let list = policy.settings(for: p).friends
-            guard let t = friendsToggles[p], isOn(p, t, policy), !list.contains(u) else { return .neutral }
-            return list.isEmpty ? .tightening : .loosening
+            return classifyList(p, .myList, u, adding: true, policy)
         case let .removeFriend(p, u):
-            // Hiding one more person is a tightening, except the last friend: that switches it off.
-            let list = policy.settings(for: p).friends
-            guard let t = friendsToggles[p], isOn(p, t, policy), list.contains(u) else { return .neutral }
-            return list.count == 1 ? .loosening : .tightening
+            return classifyList(p, .myList, u, adding: false, policy)
+        case let .setProfileStories(p, on):
+            guard feedRulesOn(p, policy), on != policy.settings(for: p).profileStories else { return .neutral }
+            return on ? .loosening : .tightening
         case let .setHardLock(until):
             switch (policy.hardLock?.until, until) {
             case (nil, nil): return .neutral
@@ -213,6 +228,21 @@ public struct Ratchet: Sendable {
             case let (.some(old), .some(new)): return cmp(new, old, looserWhenGreater: false)
             }
         }
+    }
+
+    func feedRulesOn(_ p: Platform, _ policy: WallPolicy) -> Bool {
+        guard let t = friendsToggles[p] else { return false }
+        return isOn(p, t, policy)
+    }
+
+    /// Adding to My list (while a rule uses it) or Always widens; adding to Never narrows.
+    /// Removing is the opposite. No-ops and edits while the rules are off are neutral.
+    func classifyList(_ p: Platform, _ list: PeopleList, _ u: String, adding: Bool, _ policy: WallPolicy) -> ChangeKind {
+        let settings = policy.settings(for: p)
+        let contains = settings.list(list).contains(u)
+        guard feedRulesOn(p, policy), settings.listInUse(list), adding != contains else { return .neutral }
+        let widens = (list == .never) != adding
+        return widens ? .loosening : .tightening
     }
 
     /// Minutes of short-form a day the policy allows on `p`: the budget if it's on, otherwise
@@ -234,7 +264,8 @@ public struct Ratchet: Sendable {
         case let .setCooldown(c) where !WallPolicy.cooldownRange.contains(c): return "cooldown must be 1 h – 7 d"
         case let .addCustomBlock(_, p) where (try? PathRegex(p.hasPrefix("^") ? p : "^" + p)) == nil: return "invalid pattern"
         case let .addCustomHide(_, s) where s.isEmpty || s.contains("{") || s.contains("}") || s.contains("<"): return "invalid selector"
-        case let .addFriend(_, u) where !Friends.isValid(u), let .removeFriend(_, u) where !Friends.isValid(u):
+        case let .addFriend(_, u) where !Friends.isValid(u), let .removeFriend(_, u) where !Friends.isValid(u),
+             let .addPerson(_, _, u) where !Friends.isValid(u), let .removePerson(_, _, u) where !Friends.isValid(u):
             return "invalid username"
         default: return nil
         }
@@ -251,9 +282,9 @@ public struct Ratchet: Sendable {
         lock.ledger.record(sample)
         return changes.map { change in
             if let problem = validate(change) { return .rejectedInvalid(problem) }
-            if case let .addFriend(p, u) = change, policy.settings(for: p).friends.count >= Friends.maxCount,
-               !policy.settings(for: p).friends.contains(u) {
-                return .rejectedInvalid("at most \(Friends.maxCount) friends")
+            if let (p, list, u) = Self.addition(change), policy.settings(for: p).list(list).count >= Friends.maxCount,
+               !policy.settings(for: p).list(list).contains(u) {
+                return .rejectedInvalid("at most \(Friends.maxCount) people per list")
             }
             if case let .addSchedule(rule) = change, policy.limits.schedules.count >= LimitsPolicy.maxSchedules,
                !policy.limits.schedules.contains(where: { $0.id == rule.id }) {
@@ -292,6 +323,14 @@ public struct Ratchet: Sendable {
         let ids = Set(applied.map(\.id))
         lock.pending.removeAll { ids.contains($0.id) }
         return applied
+    }
+
+    static func addition(_ c: PolicyChange) -> (Platform, PeopleList, String)? {
+        switch c {
+        case let .addPerson(p, list, u): (p, list, u)
+        case let .addFriend(p, u): (p, .myList, u)
+        default: nil
+        }
     }
 
     public func cancel(_ id: UUID, lock: inout LockState) {
@@ -333,8 +372,13 @@ public struct Ratchet: Sendable {
             policy.limits.schedules.removeAll { $0.id == rule.id }
             policy.limits.schedules.append(rule)
         case let .removeSchedule(id): policy.limits.schedules.removeAll { $0.id == id }
-        case let .addFriend(p, u): edit(p) { if !$0.friends.contains(u) { $0.friends.append(u); $0.friends.sort() } }
-        case let .removeFriend(p, u): edit(p) { $0.friends.removeAll { $0 == u } }
+        case let .setAudience(p, surface, a):
+            edit(p) { if surface == .feed { $0.feedRules.feed = a } else { $0.feedRules.stories = a } }
+        case let .addPerson(p, list, u): edit(p) { $0.edit(list) { if !$0.contains(u) { $0.append(u); $0.sort() } } }
+        case let .removePerson(p, list, u): edit(p) { $0.edit(list) { $0.removeAll { $0 == u } } }
+        case let .addFriend(p, u): edit(p) { $0.edit(.myList) { if !$0.contains(u) { $0.append(u); $0.sort() } } }
+        case let .removeFriend(p, u): edit(p) { $0.edit(.myList) { $0.removeAll { $0 == u } } }
+        case let .setProfileStories(p, on): edit(p) { $0.feedRules.profileStories = on }
         }
     }
 }

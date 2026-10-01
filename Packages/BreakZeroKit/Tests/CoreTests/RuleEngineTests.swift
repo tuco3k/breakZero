@@ -9,6 +9,7 @@ struct RouteVectors: Decodable {
         var settings: PlatformSettings?
         var signedIn: Bool?
         var shortForm: ShortFormMode?
+        var people: PeopleData?
         var steps: [Step]
     }
 
@@ -16,6 +17,8 @@ struct RouteVectors: Decodable {
         var url: String
         var expect: String
         var fresh: Bool?
+        /// The periodic watchdog, when it differs from the guard (it doesn't know where you came from).
+        var watchdog: String?
     }
 
     var sequences: [Sequence]
@@ -33,7 +36,8 @@ final class RuleEngineTests: XCTestCase {
         for seq in vectors.sequences {
             let platform = try XCTUnwrap(Platform(rawValue: seq.platform))
             let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(platform), settings: seq.settings ?? .default,
-                                          signedIn: seq.signedIn ?? true, shortForm: seq.shortForm ?? .togglesDecide)
+                                          signedIn: seq.signedIn ?? true, shortForm: seq.shortForm ?? .togglesDecide,
+                                          people: seq.people)
             let engine = try RuleEngine(active: active)
             var state = NavigationState()
             var current: URL?
@@ -67,7 +71,8 @@ final class RuleEngineTests: XCTestCase {
         for seq in try RouteVectors.load().sequences {
             let platform = try XCTUnwrap(Platform(rawValue: seq.platform))
             let engine = try RuleEngine(active: ActiveRecipe(recipe: RecipeLibrary.bundled(platform), settings: seq.settings ?? .default,
-                                                             signedIn: seq.signedIn ?? true, shortForm: seq.shortForm ?? .togglesDecide))
+                                                             signedIn: seq.signedIn ?? true, shortForm: seq.shortForm ?? .togglesDecide,
+                                                             people: seq.people))
             var state = NavigationState()
             var current: URL?
             for (i, step) in seq.steps.enumerated() {
@@ -83,7 +88,7 @@ final class RuleEngineTests: XCTestCase {
                     guard case let .redirect(wTo, _) = engine.check(url: url, state: before) else {
                         XCTFail("\(where_): watchdog must flag it"); continue
                     }
-                    XCTAssertEqual(wTo, to, where_)
+                    XCTAssertEqual("redirect:" + wTo, step.watchdog ?? "redirect:" + to, where_)
                     XCTAssertEqual(state.grant == nil, true, where_)
                     current = URL(string: to, relativeTo: url)?.absoluteURL
                 case .openExternally:
