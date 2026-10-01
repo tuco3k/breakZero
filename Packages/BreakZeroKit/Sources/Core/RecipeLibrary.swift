@@ -3,6 +3,8 @@ import Foundation
 public enum Platform: String, Codable, Sendable, CaseIterable, Identifiable {
     case instagram
     case youtube
+    /// Draft (spike S8 pending): off by default; enable it in the Wall tab.
+    case snapchat
 
     public var id: String { rawValue }
 }

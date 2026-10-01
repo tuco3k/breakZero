@@ -32,13 +32,15 @@ public struct Recipe: Codable, Sendable, Equatable {
     public var session: Session?
     /// Paths whose on-screen time counts against the shared short-form budget.
     public var shortFormRoutes: [String]
+    /// User agent the lite view should use: nil (WebKit default), "safari" or "desktopSafari".
+    public var userAgent: String?
 
     public init(
         platform: String, version: Int, minEngine: Int, hosts: [String], authHosts: [String] = [],
         landing: Landing, toggles: [Toggle], scopes: [String: String] = [:], routes: [RouteRule],
         hide: [HideRule] = [], heuristics: [Heuristic] = [], behaviors: [Behavior] = [],
         allowZones: [String] = [], canaries: [Canary] = [], resourceBlocks: [ResourceBlock] = [],
-        session: Session? = nil, shortFormRoutes: [String] = []
+        session: Session? = nil, shortFormRoutes: [String] = [], userAgent: String? = nil
     ) {
         self.platform = platform
         self.version = version
@@ -57,6 +59,7 @@ public struct Recipe: Codable, Sendable, Equatable {
         self.resourceBlocks = resourceBlocks
         self.session = session
         self.shortFormRoutes = shortFormRoutes
+        self.userAgent = userAgent
     }
 
     // Optional arrays default to empty so recipe authors can omit them.
@@ -79,6 +82,7 @@ public struct Recipe: Codable, Sendable, Equatable {
         resourceBlocks = try c.decodeIfPresent([ResourceBlock].self, forKey: .resourceBlocks) ?? []
         session = try c.decodeIfPresent(Session.self, forKey: .session)
         shortFormRoutes = try c.decodeIfPresent([String].self, forKey: .shortFormRoutes) ?? []
+        userAgent = try c.decodeIfPresent(String.self, forKey: .userAgent)
     }
 
     public struct Session: Codable, Sendable, Equatable {
@@ -96,11 +100,14 @@ public struct Recipe: Codable, Sendable, Equatable {
         /// Key into `options` used instead when the user is signed out (e.g. YouTube → search,
         /// because Subscriptions is empty without an account). nil = same as signed in.
         public var signedOut: String?
+        /// Host to load the landing page on (one of `hosts`). nil = the first "www." host.
+        public var host: String?
 
-        public init(default: String, options: [String: String], signedOut: String? = nil) {
+        public init(default: String, options: [String: String], signedOut: String? = nil, host: String? = nil) {
             self.default = `default`
             self.options = options
             self.signedOut = signedOut
+            self.host = host
         }
     }
 

@@ -24,6 +24,7 @@ struct WallView: View {
             if !model.lock.pending.isEmpty { pendingSection }
             accountsSection
             LimitsSection(submit: { submit($0) })
+            platformsSection
             ForEach(model.policy.enabledPlatforms) { p in platformSection(p) }
             passSection
             Section {
@@ -109,6 +110,25 @@ struct WallView: View {
             Text("Accounts")
         } footer: {
             Text("Sign in inside each tab. Signing out deletes only that site's cookies in breakZero.")
+        }
+    }
+
+    /// Which lite tabs exist. Neutral (instant both ways): a tab is a view, not a restriction.
+    private var platformsSection: some View {
+        Section {
+            ForEach(Platform.allCases) { p in
+                Toggle(isOn: Binding(get: { model.policy.enabledPlatforms.contains(p) },
+                                     set: { submit(.setPlatformEnabled(p, $0)) })) {
+                    VStack(alignment: .leading) {
+                        Text(p.displayName)
+                        if p == .snapchat {
+                            Text("Draft: web chat may not work on iPhone yet.").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("Platforms")
         }
     }
 
@@ -243,6 +263,9 @@ enum ToggleTitles {
         case "yt.hideEndScreen": String(localized: "Hide end-screen cards")
         case "yt.autoplayOff": String(localized: "Autoplay off")
         case "yt.hideComments": String(localized: "Hide comments")
+        case "sc.blockSpotlight": String(localized: "Block Spotlight")
+        case "sc.blockDiscover": String(localized: "Block Discover and Stories browsing")
+        case "sc.hideDiscoveryLinks": String(localized: "Hide Spotlight and Discover links")
         default: id
         }
     }
@@ -253,6 +276,8 @@ enum ToggleTitles {
         case "following": String(localized: "Following feed")
         case "subscriptions": String(localized: "Subscriptions")
         case "library": String(localized: "Library")
+        case "search": String(localized: "Search")
+        case "chat": String(localized: "Chats")
         default: key
         }
     }

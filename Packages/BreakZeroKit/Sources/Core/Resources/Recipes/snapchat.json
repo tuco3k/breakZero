@@ -1,0 +1,45 @@
+{
+  "platform": "snapchat",
+  "version": 1,
+  "minEngine": 1,
+  "_status": "DRAFT before spike S8 (docs/ON_DEVICE_CHECKLIST.md). Off by default. Selectors and paths are unverified guesses from public web.snapchat.com / www.snapchat.com URLs.",
+  "hosts": ["web.snapchat.com", "www.snapchat.com"],
+  "authHosts": ["accounts.snapchat.com"],
+  "userAgent": "desktopSafari",
+  "session": {"cookies": ["__Host-sc-a-auth-session", "sc-a-session"]},
+  "shortFormRoutes": ["^/spotlight(/|$)", "^/@[A-Za-z0-9._-]+/spotlight(/|$)"],
+  "landing": {
+    "default": "chat",
+    "options": {"chat": "/"},
+    "host": "web.snapchat.com"
+  },
+  "toggles": [
+    {"id": "sc.blockSpotlight", "defaultOn": true},
+    {"id": "sc.blockDiscover", "defaultOn": true},
+    {"id": "sc.hideDiscoveryLinks", "defaultOn": true}
+  ],
+  "routes": [
+    {"id": "sc.route.spotlight", "toggle": "sc.blockSpotlight", "shortForm": true, "pattern": "^/spotlight(/|$)", "action": "block"},
+    {"id": "sc.route.userSpotlight", "toggle": "sc.blockSpotlight", "shortForm": true, "pattern": "^/@[A-Za-z0-9._-]+/spotlight(/|$)", "action": "block"},
+    {"id": "sc.route.discover", "toggle": "sc.blockDiscover", "pattern": "^/discover(/|$)", "action": "block"},
+    {"id": "sc.route.explore", "toggle": "sc.blockDiscover", "pattern": "^/explore(/|$)", "action": "block"},
+    {"id": "sc.route.stories", "toggle": "sc.blockDiscover", "pattern": "^/(stories|lens)(/|$)", "action": "block"}
+  ],
+  "hide": [
+    {"id": "sc.hide.spotlightLinks", "toggle": "sc.hideDiscoveryLinks", "shortForm": true, "selector": "a[href*=\"/spotlight\"]"},
+    {"id": "sc.hide.discoverLinks", "toggle": "sc.hideDiscoveryLinks", "selector": "a[href*=\"/discover\"], a[href*=\"/explore\"]"}
+  ],
+  "heuristics": [
+    {"id": "sc.heur.spotlightLinks", "toggle": "sc.hideDiscoveryLinks", "shortForm": true, "type": "anchorHref", "pattern": "^/(@[A-Za-z0-9._-]+/)?spotlight", "hideAncestor": 1},
+    {"id": "sc.heur.discoverLinks", "toggle": "sc.hideDiscoveryLinks", "type": "anchorHref", "pattern": "^/(discover|explore|stories)(/|$)", "hideAncestor": 1}
+  ],
+  "allowZones": [
+    "^/$",
+    "^/[0-9a-fA-F-]{36}(/|$)",
+    "^/accounts/",
+    "^/add/"
+  ],
+  "canaries": [
+    {"id": "sc.canary.spotlightLinks", "toggle": "sc.hideDiscoveryLinks", "shortForm": true, "route": "^/@", "mustNotExist": {"anchorHref": "^/(@[A-Za-z0-9._-]+/)?spotlight"}}
+  ]
+}

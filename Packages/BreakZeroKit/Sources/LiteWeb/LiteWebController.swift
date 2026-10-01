@@ -9,6 +9,8 @@ public enum UserAgentMode: String, Codable, Sendable, CaseIterable {
     case webKitDefault
     /// The device's real mobile-Safari UA. Spike S2/S3 decide whether we need this.
     case safari
+    /// Desktop Safari on macOS (Snapchat's web chat only serves desktop browsers; spike S8).
+    case desktopSafari
 
     /// Mobile Safari UA for this device's iOS version.
     @MainActor
@@ -17,6 +19,27 @@ public enum UserAgentMode: String, Codable, Sendable, CaseIterable {
         let underscored = v.replacingOccurrences(of: ".", with: "_")
         let major = v.split(separator: ".").first.map(String.init) ?? v
         return "Mozilla/5.0 (iPhone; CPU iPhone OS \(underscored) like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(major).0 Mobile/15E148 Safari/604.1"
+    }
+
+    /// Desktop Safari UA (same WebKit major as the device).
+    @MainActor
+    static func desktopSafariUserAgent() -> String {
+        let major = UIDevice.current.systemVersion.split(separator: ".").first.map(String.init) ?? "18"
+        return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(major).0 Safari/605.1.15"
+    }
+
+    /// The UA a recipe asks for (nil = WebKit default).
+    public init(recipeValue: String?) {
+        self = recipeValue.flatMap(UserAgentMode.init(rawValue:)) ?? .webKitDefault
+    }
+
+    @MainActor
+    public var userAgentString: String? {
+        switch self {
+        case .webKitDefault: nil
+        case .safari: Self.safariUserAgent()
+        case .desktopSafari: Self.desktopSafariUserAgent()
+        }
     }
 }
 
@@ -74,11 +97,14 @@ public final class LiteWebController: NSObject {
         switch p {
         case .instagram: UUID(uuidString: "6F1D7A52-3C0B-4C55-9E7A-1B0A6E1D0001")!
         case .youtube: UUID(uuidString: "6F1D7A52-3C0B-4C55-9E7A-1B0A6E1D0002")!
+        case .snapchat: UUID(uuidString: "6F1D7A52-3C0B-4C55-9E7A-1B0A6E1D0003")!
         }
     }
 
+    /// - userAgent: nil = what the recipe asks for (`Recipe.userAgent`), else WebKit's default.
     public init(platform: Platform, active: ActiveRecipe, strings: LiteStrings,
-                userAgent: UserAgentMode = .webKitDefault, dataStore: WKWebsiteDataStore? = nil) throws {
+                userAgent: UserAgentMode? = nil, dataStore: WKWebsiteDataStore? = nil) throws {
+        let ua = userAgent ?? UserAgentMode(recipeValue: active.recipe.userAgent)
         self.platform = platform
         self.engine = try RuleEngine(active: active)
         self.filterSource = try LiteScriptBuilder.filterSource()
@@ -89,12 +115,12 @@ public final class LiteWebController: NSObject {
         config.allowsInlineMediaPlayback = true
         // YouTube: never start playback without a tap (part of "autoplay off").
         config.mediaTypesRequiringUserActionForPlayback = platform == .youtube ? .all : []
-        config.defaultWebpagePreferences.preferredContentMode = .mobile
+        config.defaultWebpagePreferences.preferredContentMode = ua == .desktopSafari ? .desktop : .mobile
         config.limitsNavigationsToAppBoundDomains = false
         self.webView = WKWebView(frame: .zero, configuration: config)
         super.init()
 
-        if userAgent == .safari { webView.customUserAgent = UserAgentMode.safariUserAgent() }
+        webView.customUserAgent = ua.userAgentString
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -138,7 +164,8 @@ public final class LiteWebController: NSObject {
     }
 
     public func load(path: String) {
-        guard let host = engine.recipe.hosts.first(where: { !$0.hasPrefix("*.") && $0.hasPrefix("www.") }) ?? engine.recipe.hosts.first,
+        guard let host = engine.recipe.landing.host
+                ?? engine.recipe.hosts.first(where: { !$0.hasPrefix("*.") && $0.hasPrefix("www.") }) ?? engine.recipe.hosts.first,
               let url = URL(string: "https://\(host)\(path)") else { return }
         webView.load(URLRequest(url: url))
     }

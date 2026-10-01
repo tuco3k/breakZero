@@ -100,6 +100,15 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   timer in `LiteWebController`, acting only on a URL that's been showing a full tick; violations →
   toast in the header strip + Diagnostics log (`AppModel.handleViolation`).
 
+- [x] 6. Snapchat. Can't spike from Linux, so: Diagnostics › *S8 · Snapchat web chat* (load
+  web.snapchat.com with WebKit / desktop Safari / mobile Safari UA, list cookie names) and checklist
+  step 18. **Draft** recipe `snapchat.json` (chat on web.snapchat.com kept; Spotlight, Discover,
+  Explore, Stories browsing blocked; Spotlight in the shared short-form budget; desktop Safari UA),
+  validated and covered by shared route vectors in Swift and JS; **off by default** (Wall ›
+  Platforms). Outcome rule written down in ARCHITECTURE.md §7: if S8 fails, Spotlight can only be
+  blocked by shielding the native app in the paid build. Roadmap: Snapchat moved to v1.1, ahead of
+  Reddit/X/Facebook (BRIEF.md §4.1, §12).
+
 ## Next
 1. Owner: `docs/ON_DEVICE_CHECKLIST.md` steps 1–14; report spike results.
 2. Phase 1 remaining items above (downloads, interactionState restore, unread counts).

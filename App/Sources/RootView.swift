@@ -137,6 +137,7 @@ extension Platform {
         switch self {
         case .instagram: "Instagram"
         case .youtube: "YouTube"
+        case .snapchat: "Snapchat"
         }
     }
 
@@ -144,6 +145,7 @@ extension Platform {
         switch self {
         case .instagram: "bubble.left.and.bubble.right"
         case .youtube: "play.rectangle"
+        case .snapchat: "message"
         }
     }
 }

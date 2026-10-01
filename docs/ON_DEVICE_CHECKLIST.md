@@ -77,3 +77,12 @@ the lite app signs with a free Personal Team. Nothing has run on a device yet (s
     Subscriptions): it should open as a normal watch page. Let a video finish: autoplay must not
     advance. Report whether the subscriptions page shows any Shorts.
 17. If any page shows a **"Filter needs an update"** banner, tap *Report* and paste the issue link.
+
+## E. Snapchat spike (S8, works with the free lite build)
+
+18. **S8 Snapchat web chat.** Diagnostics → *S8 · Snapchat web chat*. Try *web.snapchat.com ·
+    desktop Safari UA* first, then *WebKit UA* and *mobile Safari UA*. For each, report: does the page
+    load (or say "use a computer")? Can you sign in? Can you open a chat, send a message, and receive
+    one? Then tap *Check Snapchat session* and paste the cookie-name line (names only), so the draft
+    recipe can tell signed in from signed out. If any UA works, also turn on Wall › Platforms ›
+    Snapchat and check that chat works in the Snapchat tab and that a Spotlight link is blocked.

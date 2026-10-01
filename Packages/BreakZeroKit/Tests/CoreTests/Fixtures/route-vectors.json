@@ -479,6 +479,71 @@
           "expect": "redirect:/feed/subscriptions"
         }
       ]
+    },
+    {
+      "name": "snapchat draft: chat kept, Spotlight and Discover blocked",
+      "platform": "snapchat",
+      "steps": [
+        {
+          "url": "https://web.snapchat.com/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://web.snapchat.com/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.snapchat.com/spotlight/W7_EDlXWTBi",
+          "expect": "redirect:/"
+        },
+        {
+          "url": "https://www.snapchat.com/spotlight",
+          "expect": "redirect:/"
+        },
+        {
+          "url": "https://www.snapchat.com/@someone/spotlight/abc",
+          "expect": "redirect:/"
+        },
+        {
+          "url": "https://www.snapchat.com/@someone",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.snapchat.com/discover/abc",
+          "expect": "redirect:/"
+        },
+        {
+          "url": "https://www.snapchat.com/explore/xyz",
+          "expect": "redirect:/"
+        },
+        {
+          "url": "https://www.snapchat.com/add/someone",
+          "expect": "allow"
+        },
+        {
+          "url": "https://accounts.snapchat.com/accounts/v2/login",
+          "expect": "allow"
+        },
+        {
+          "url": "https://story.snapchat.com/p/abc",
+          "expect": "external"
+        }
+      ]
+    },
+    {
+      "name": "snapchat Spotlight in the shared short-form budget",
+      "platform": "snapchat",
+      "shortForm": "budgetAllowed",
+      "steps": [
+        {
+          "url": "https://www.snapchat.com/spotlight/W7_EDlXWTBi",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.snapchat.com/discover/abc",
+          "expect": "redirect:/"
+        }
+      ]
     }
   ]
 }

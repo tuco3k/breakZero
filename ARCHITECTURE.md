@@ -234,3 +234,15 @@ Darwin so the app and extensions never read a torn write. Writes are atomic (`.a
 | User agent | WebKit default UA | S2/S3 |
 | Pass mechanism | Edit base store + DeviceActivity interval for re-shield | S7 |
 | Notifications | Option A (disclose) | S4 |
+| Snapchat | Draft recipe, off by default, desktop Safari UA | S8 |
+
+**S8 outcomes (decided in advance, 2026-10-01).** If web.snapchat.com loads and chat works in our
+web view: finish the draft recipe (chat kept; Spotlight and Discover blocked; Spotlight counted in
+the shared short-form budget) and turn the tab on by default. If it doesn't: drop the lite tab, and
+say plainly in the app and docs that **Spotlight can only be blocked by shielding the native
+Snapchat app, which needs the paid (Screen Time) build** — the free build can't touch it.
+
+**Recorded results**
+- S2 (2026-10-01, owner's iPhone, WebKit UA, VPN on): Google warned the browser "didn't seem
+  trustworthy" and required two sign-ins; signed-in YouTube then worked. Decision: keep signed-in
+  web YouTube as an option; build the login-free RSS fallback (done); land on Search when signed out.

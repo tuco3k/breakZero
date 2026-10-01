@@ -75,6 +75,20 @@ struct DiagnosticsView: View {
             }
 
             Section {
+                Button("web.snapchat.com · WebKit UA") { probe = .init(url: "https://web.snapchat.com/", store: .platform(.snapchat), ua: .webKitDefault) }
+                Button("web.snapchat.com · desktop Safari UA") { probe = .init(url: "https://web.snapchat.com/", store: .platform(.snapchat), ua: .desktopSafari) }
+                Button("web.snapchat.com · mobile Safari UA") { probe = .init(url: "https://web.snapchat.com/", store: .platform(.snapchat), ua: .safari) }
+                Button("Check Snapchat session (cookie names only)") {
+                    Task {
+                        let names = await LiteSession.cookieNames(.snapchat).map(\.name).sorted()
+                        log("snapchat cookie names: \(names.joined(separator: " "))")
+                    }
+                }
+            } header: { Text("S8 · Snapchat web chat") } footer: {
+                Text("Does web.snapchat.com load, let you sign in, and let you open a chat and send a message? Try each user agent. The cookie-name list helps finish the draft recipe's sign-in check.")
+            }
+
+            Section {
                 Button("Ask for notification permission") {
                     Task {
                         let ok = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
@@ -248,11 +262,10 @@ struct ProbeWebView: UIViewRepresentable {
         case let .platform(p): config.websiteDataStore = WKWebsiteDataStore(forIdentifier: Self.platformStoreID(p))
         }
         config.allowsInlineMediaPlayback = true
+        // Before creating the view: WKWebView copies its configuration.
+        if probe.ua == .desktopSafari { config.defaultWebpagePreferences.preferredContentMode = .desktop }
         let wv = WKWebView(frame: .zero, configuration: config)
-        if probe.ua == .safari {
-            let v = UIDevice.current.systemVersion
-            wv.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS \(v.replacingOccurrences(of: ".", with: "_")) like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(v.split(separator: ".").first ?? "18").0 Mobile/15E148 Safari/604.1"
-        }
+        wv.customUserAgent = probe.ua.userAgentString
         wv.navigationDelegate = context.coordinator
         context.coordinator.started = Date()
         log("probe load \(probe.url) store=\(probe.store) ua=\(probe.ua.rawValue)")

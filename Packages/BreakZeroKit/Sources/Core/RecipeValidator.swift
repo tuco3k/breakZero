@@ -36,6 +36,12 @@ public enum RecipeValidator {
             check(HostPattern.isValid(host), "invalid host pattern \(host)")
         }
         check(recipe.landing.options[recipe.landing.default] != nil, "landing default has no path")
+        if let h = recipe.landing.host {
+            check(recipe.hosts.contains(h) && !h.hasPrefix("*."), "landing host must be one of hosts")
+        }
+        if let ua = recipe.userAgent {
+            check(["safari", "desktopSafari"].contains(ua), "userAgent must be safari or desktopSafari")
+        }
         if let k = recipe.landing.signedOut {
             check(recipe.landing.options[k] != nil, "landing signedOut has no path")
         }

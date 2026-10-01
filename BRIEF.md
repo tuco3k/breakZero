@@ -82,7 +82,7 @@ Treat these as hypotheses to confirm in Phase 0, not facts.
 ### 4.1 Shell
 Native SwiftUI app with a bottom tab bar: one tab per enabled platform + a **Wall** tab (settings, lock, passes, diagnostics). Each platform tab hosts one persistent, warm WKWebView ("Lite view"). Native back/forward swipe, pull-to-refresh, haptics. Dark mode. Dynamic Type for native UI. VoiceOver labels on all native controls.
 
-**v1 platforms:** Instagram, YouTube. **v1.1:** Reddit, X, Facebook. **v1.2:** Snapchat web chat. **TikTok:** block wholesale (the product *is* the feed); DMs-only lite view only if it proves reliable.
+**v1 platforms:** Instagram, YouTube. **v1.1:** Snapchat web chat (spike S8 first; owner moved it ahead, 2026-10-01). **v1.2:** Reddit, X, Facebook. **TikTok:** block wholesale (the product *is* the feed); DMs-only lite view only if it proves reliable.
 
 **Custom blocks (all versions):** any app via the picker, any website via picker or filter, and per-platform advanced rules (URL pattern block, CSS hide) in the Lite views.
 
@@ -233,7 +233,7 @@ Shielded apps go silent — that's iOS. Options:
 **Phase 4 — Ship-ready.** Signed recipe updates, canaries + report flow, CI + nightly canary, all docs, TestFlight build, App Store privacy answers = Data Not Collected.
 - App < 25 MB; network capture shows only allowed hosts.
 
-**Phase 5 — Next.** v1.1 platforms, Safari Web Extension, schedules/sleep mode, on-device usage stats, multi-account.
+**Phase 5 — Next.** v1.1 platform (Snapchat), then v1.2 (Reddit, X, Facebook), Safari Web Extension, schedules/sleep mode, on-device usage stats, multi-account.
 
 ---
 
