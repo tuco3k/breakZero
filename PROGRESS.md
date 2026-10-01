@@ -84,6 +84,14 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   cooldown, Hard Lock, passes, what it can't stop (matches SECURITY_MODEL.md), and — in the free
   build — which features are off and why. Replaces the old inline "can and can't stop" paragraph.
 
+- [x] 4. Limits (all off by default). Core (tested on Linux with a fake clock): `Limits.swift` —
+  `LimitsPolicy` in `WallPolicy`, `UsageState` (own trusted ledger + trusted day, pinned time zone,
+  ≥ 20 h days), `LimitEvaluator`, `ShortFormMode` applied by `ActiveRecipe`; recipes mark
+  `shortForm` rules and `shortFormRoutes`; ratchet rules for limits/budget/schedules. App
+  (UNVERIFIED): 1 s usage meter while a lite tab is on screen in the foreground (`AppModel`),
+  "done for today" screen with the pass path (`DoneForTodayView.swift`), Wall › Limits and
+  Schedules (`LimitsSection.swift`), remaining minutes in the header strip.
+
 ## Next
 1. Owner: `docs/ON_DEVICE_CHECKLIST.md` steps 1–14; report spike results.
 2. Phase 1 remaining items above (downloads, interactionState restore, unread counts).

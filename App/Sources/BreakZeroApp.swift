@@ -18,6 +18,7 @@ struct BreakZeroApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.reconcile(source: "app.active") }
+            model.setForeground(phase == .active)
         }
     }
 }

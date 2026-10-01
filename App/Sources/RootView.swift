@@ -54,7 +54,10 @@ struct LiteTab: View {
     var body: some View {
         VStack(spacing: 0) {
             LiteHeaderStrip(platform: platform)
-            if let c = model.controller(for: platform) {
+            if let reason = model.limitStatus.platformBlock[platform] {
+                // The web view stays alive (and paused) underneath; nothing of it is shown.
+                DoneForTodayView(platform: platform, reason: reason)
+            } else if let c = model.controller(for: platform) {
                 LiteWebView(controller: c)
                     .accessibilityLabel(Text("\(platform.displayName) lite view"))
             } else {
@@ -86,6 +89,17 @@ struct LiteHeaderStrip: View {
                 Text(platform.displayName)
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.secondary)
+                if let left = model.limitStatus.shortFormRemaining {
+                    Text(left > 0 ? "· Reels/Shorts \(Int((left / 60).rounded(.up))) min left" : "· Reels/Shorts done today")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else if let left = model.limitStatus.platformRemaining[platform] {
+                    Text("· \(Int((left / 60).rounded(.up))) min left today")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             if platform == .youtube {

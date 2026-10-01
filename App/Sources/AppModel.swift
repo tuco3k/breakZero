@@ -40,6 +40,14 @@ final class AppModel {
     private(set) var sessions: [Platform: Bool] = [:]
     /// Short message shown in the lite header strip (e.g. why the watchdog moved you).
     private(set) var toast: Toast?
+    /// Today's usage (trusted time) and what the limits say about it right now.
+    private(set) var usage = UsageState()
+    private(set) var limitStatus = LimitStatus.unlimited
+    /// True while the app is in the foreground (scene phase active).
+    private(set) var isForeground = false
+    private var meterTimer: Timer?
+    private var ticks = 0
+    private var matchers: [Platform: ShortFormMatcher] = [:]
 
     struct Toast: Equatable, Identifiable {
         let id = UUID()
@@ -69,6 +77,8 @@ final class AppModel {
             if let recipe = try? RecipeLibrary.bundled(p) { r[p] = recipe }
         }
         recipes = r
+        for (p, recipe) in r { matchers[p] = ShortFormMatcher(recipe) }
+        usage = (try? store.read(UsageState.self, UsageState.file)) ?? UsageState()
         reload()
         if let first = policy.enabledPlatforms.first { selectedTab = .lite(first) } else { selectedTab = .wall }
     }
@@ -105,7 +115,10 @@ final class AppModel {
         #endif
         let before = policy
         reload()
-        if before != policy { rebuildLiteViews() }
+        if before != policy {
+            reevaluateLimits()
+            rebuildLiteViews()
+        }
     }
 
     @discardableResult
@@ -136,7 +149,8 @@ final class AppModel {
         guard let recipe = recipes[p] else { return nil }
         // Unknown session (not checked yet) counts as signed in; the check runs before first load.
         let signedIn = sessions[p] ?? true
-        if let a = try? ActiveRecipe(recipe: recipe, settings: policy.settings(for: p), signedIn: signedIn) { return a }
+        if let a = try? ActiveRecipe(recipe: recipe, settings: policy.settings(for: p), signedIn: signedIn,
+                                     shortForm: limitStatus.shortForm) { return a }
         // A bad custom rule must never take the platform's filters down: fall back to defaults.
         log("settings for \(p.rawValue) invalid; using recipe defaults")
         return try? ActiveRecipe(recipe: recipe)
@@ -191,10 +205,10 @@ final class AppModel {
         }
     }
 
-    func rebuildLiteViews() {
+    func rebuildLiteViews(reload: Bool = true) {
         for (p, c) in controllers {
             guard let active = activeRecipe(p) else { continue }
-            try? c.update(active: active)
+            try? c.update(active: active, reload: reload)
         }
     }
 
@@ -278,6 +292,108 @@ final class AppModel {
     var youtubeListIncludesShorts: Bool {
         guard let r = recipes[.youtube] else { return false }
         return !policy.settings(for: .youtube).isOn("yt.hideShorts", in: r)
+    }
+
+    // MARK: Limits (usage meter)
+
+    /// Scene became active/inactive. Starts or stops the 1 s meter; the first sample after
+    /// returning is a nil-activity check-in, so time in the background never counts.
+    func setForeground(_ active: Bool) {
+        if active == isForeground { return }
+        if active {
+            isForeground = true
+            tickUsage(counting: false)
+            meterTimer?.invalidate()
+            meterTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.tickUsage(counting: true) }
+            }
+        } else {
+            tickUsage(counting: true)
+            isForeground = false
+            meterTimer?.invalidate()
+            meterTimer = nil
+            saveUsage()
+        }
+    }
+
+    /// What's on screen right now, for the meter: a lite tab in the foreground, and whether its
+    /// current path is a short-form surface.
+    var currentActivity: ScreenActivity? {
+        guard isForeground, case let .lite(p) = selectedTab, limitStatus.platformBlock[p] == nil,
+              let path = controllers[p]?.currentPath else { return nil }
+        return ScreenActivity(platform: p, shortForm: matchers[p]?.matches(path: path) ?? false)
+    }
+
+    func tickUsage(counting: Bool) {
+        let sample = SystemClockSource().sample()
+        usage.tick(sample, activity: counting ? currentActivity : nil, timeZone: .current)
+        ticks += 1
+        if ticks % 5 == 0 { saveUsage() }
+        if ticks % 30 == 0 {
+            // Keep the wall's own ledger fresh too (pass expiry uses it).
+            _ = try? store.update(AppGroup.File.lock, default: LockState()) { (lock: inout LockState) in
+                lock.ledger.record(sample)
+            }
+            reload()
+        }
+        reevaluateLimits()
+    }
+
+    func saveUsage() {
+        try? store.write(usage, UsageState.file)
+    }
+
+    var activePassTokens: Set<String> {
+        Set(lock.passes.active(now: Date(), credited: lock.ledger.credited).map(\.appTokenID))
+    }
+
+    /// Recompute limits; when the short-form mode or a platform block changes, rebuild the
+    /// affected lite views and let the watchdog act.
+    func reevaluateLimits() {
+        let next = LimitEvaluator.evaluate(policy.limits, usage: usage, activePassTokens: activePassTokens,
+                                           platforms: policy.enabledPlatforms)
+        let before = limitStatus
+        limitStatus = next
+        if before.shortForm != next.shortForm {
+            log("short-form: \(before.shortForm.rawValue) → \(next.shortForm.rawValue)")
+            rebuildLiteViews(reload: false)
+        }
+        for p in policy.enabledPlatforms where before.platformBlock[p] != next.platformBlock[p] {
+            if let reason = next.platformBlock[p] {
+                log("\(p.rawValue) blocked: \(reason.rawValue)")
+                controllers[p]?.pauseMedia()
+            } else {
+                log("\(p.rawValue) unblocked")
+            }
+        }
+        limitsChanged(from: before, to: next)
+    }
+
+    /// Hook for the watchdog (item 5).
+    func limitsChanged(from before: LimitStatus, to next: LimitStatus) {}
+
+    // MARK: Extra time (lite passes: same cap, wait and log as native passes)
+
+    func requestLitePass(_ p: Platform, purpose: String) throws -> PassRecord {
+        let rules = policy.pass
+        let record: PassRecord = try store.update(AppGroup.File.lock, default: LockState()) { (lock: inout LockState) in
+            try lock.passes.request(appTokenID: LimitEvaluator.passToken(p), purpose: purpose, rules: rules, now: Date())
+        }
+        log("pass requested for \(p.rawValue) (wait \(rules.waitSeconds) s)")
+        reload()
+        return record
+    }
+
+    func startLitePass(_ id: UUID) throws {
+        let sample = SystemClockSource().sample()
+        let rules = policy.pass
+        _ = try store.update(AppGroup.File.lock, default: LockState()) { (lock: inout LockState) -> PassRecord in
+            lock.ledger.record(sample)
+            return try lock.passes.start(id, rules: rules, now: sample.wall, credited: lock.ledger.credited)
+        }
+        log("pass started (\(rules.durationMinutes) min)")
+        reload()
+        reevaluateLimits()
     }
 
     // MARK: Toast

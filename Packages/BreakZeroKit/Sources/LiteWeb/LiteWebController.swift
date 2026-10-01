@@ -111,6 +111,17 @@ public final class LiteWebController: NSObject {
         compileContentRules()
     }
 
+    /// Path of the page on screen (for the usage meter and the native watchdog).
+    public var currentPath: String? {
+        webView.url.map(RuleEngine.path)
+    }
+
+    /// Pause every `<video>`/`<audio>` (used when a limit or schedule blocks this platform).
+    public func pauseMedia() {
+        webView.evaluateJavaScript("document.querySelectorAll('video,audio').forEach(function(m){try{m.pause()}catch(e){}});", in: nil, in: .page) { _ in }
+        webView.pauseAllMediaPlayback()
+    }
+
     // MARK: Loading
 
     public func loadLanding() {

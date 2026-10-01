@@ -23,6 +23,7 @@ struct WallView: View {
             lockSection
             if !model.lock.pending.isEmpty { pendingSection }
             accountsSection
+            LimitsSection(submit: { submit($0) })
             ForEach(model.policy.enabledPlatforms) { p in platformSection(p) }
             passSection
             Section {
@@ -116,14 +117,14 @@ struct WallView: View {
             ForEach(model.lock.pending) { p in
                 HStack {
                     VStack(alignment: .leading) {
-                        Text(Self.describe(p.change))
+                        Text(Self.describe(p.change, policy: model.policy))
                         Text("About \(p.estimatedDue.formatted(date: .abbreviated, time: .shortened))")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button("Cancel") { model.cancelPending(p.id) }
                         .buttonStyle(.borderless)
-                        .accessibilityLabel(Text("Cancel pending change: \(Self.describe(p.change))"))
+                        .accessibilityLabel(Text("Cancel pending change: \(Self.describe(p.change, policy: model.policy))"))
                 }
             }
         }
@@ -197,7 +198,8 @@ struct WallView: View {
         return f.string(from: t) ?? "\(Int(t))s"
     }
 
-    static func describe(_ c: PolicyChange) -> String {
+    /// - policy: used to name a schedule being removed (it stays in the policy until the change applies).
+    static func describe(_ c: PolicyChange, policy: WallPolicy) -> String {
         switch c {
         case let .setToggle(p, id, on): "\(p.displayName): \(ToggleTitles.title(id)) \(on ? "on" : "off")"
         case let .removeCustomBlock(p, pattern): "\(p.displayName): remove block \(pattern)"
@@ -210,6 +212,12 @@ struct WallView: View {
         case let .setLockEnabled(on): on ? String(localized: "Lock on") : String(localized: "Lock off")
         case let .setDenyAppRemoval(on): on ? String(localized: "Block deleting breakZero") : String(localized: "Allow deleting breakZero")
         case .setHardLock: String(localized: "Change Hard Lock")
+        case let .setDailyLimit(p, m?): String(localized: "\(p.displayName): \(m) min a day")
+        case let .setDailyLimit(p, nil): String(localized: "\(p.displayName): no daily limit")
+        case let .setShortFormBudget(m): m == 0 ? String(localized: "Reels/Shorts budget off") : String(localized: "Reels/Shorts: \(m) min a day")
+        case let .removeSchedule(id):
+            String(localized: "Remove schedule: ")
+                + (policy.limits.schedules.first { $0.id == id }.map { LimitsSection.targetName($0.target) + ", " + LimitsSection.window($0) } ?? "?")
         default: String(describing: c)
         }
     }
