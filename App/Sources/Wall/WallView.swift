@@ -8,19 +8,23 @@ struct WallView: View {
     @Environment(AppModel.self) private var model
     @State private var resultText: String?
     @State private var confirmSignOut: Platform?
+    @State private var showExplainer = false
+    /// The explainer opens by itself once, the first time the Wall tab is shown.
+    @AppStorage("bz.seenWallExplainer") private var seenExplainer = false
 
     var body: some View {
         @Bindable var model = model
         List {
+            Section {
+                Button { showExplainer = true } label: {
+                    Label(String(localized: "What is the wall?"), systemImage: "questionmark.circle")
+                }
+            }
             lockSection
             if !model.lock.pending.isEmpty { pendingSection }
             accountsSection
             ForEach(model.policy.enabledPlatforms) { p in platformSection(p) }
             passSection
-            Section {
-                Text("What the wall can and can't stop") .font(.headline)
-                Text(Self.honestLimits).font(.footnote).foregroundStyle(.secondary)
-            }
             Section {
                 Text(versionString)
                     .font(.footnote)
@@ -34,6 +38,13 @@ struct WallView: View {
         }
         .navigationTitle(String(localized: "Wall"))
         .task { await model.refreshSessions() }
+        .onAppear {
+            if !seenExplainer {
+                seenExplainer = true
+                showExplainer = true
+            }
+        }
+        .sheet(isPresented: $showExplainer) { WallExplainerView() }
         .confirmationDialog(
             confirmSignOut.map { String(localized: "Sign out of \($0.displayName)?") } ?? "",
             isPresented: Binding(get: { confirmSignOut != nil }, set: { if !$0 { confirmSignOut = nil } }),
@@ -203,9 +214,6 @@ struct WallView: View {
         }
     }
 
-    static let honestLimits = String(localized: """
-    breakZero hides and blocks parts of Instagram and YouTube in its own lite views, and can shield the native apps with Screen Time. It can't stop you from using a different browser or device, and on this phone anyone who can turn off breakZero's Screen Time access can take the wall down. Ask someone you trust to set a Screen Time passcode to make that harder. Shielded apps can't send you notifications.
-    """)
 }
 
 /// User-facing names for recipe toggles. Recipes stay language-independent; titles live here.

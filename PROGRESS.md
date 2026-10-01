@@ -79,6 +79,11 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   (`YouTubeSubscriptions.swift`, `NetworkPolicy.youtubeFeed`, tested) and a native list sheet from
   the header strip's list button (`YouTubeSubscriptionsView.swift`, UNVERIFIED).
 
+- [x] 3. Wall explainer (`WallExplainerView.swift`, UNVERIFIED): opens by itself the first time the
+  Wall tab is shown, then from a "What is the wall?" row. Covers what it does, instant tightening vs
+  cooldown, Hard Lock, passes, what it can't stop (matches SECURITY_MODEL.md), and — in the free
+  build — which features are off and why. Replaces the old inline "can and can't stop" paragraph.
+
 ## Next
 1. Owner: `docs/ON_DEVICE_CHECKLIST.md` steps 1–14; report spike results.
 2. Phase 1 remaining items above (downloads, interactionState restore, unread counts).
