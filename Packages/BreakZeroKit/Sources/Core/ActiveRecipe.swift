@@ -41,16 +41,28 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
 
     public var recipe: Recipe
     public var landingPath: String
+    public var shortForm: ShortFormMode
 
     /// - signedIn: false picks the recipe's signed-out landing (YouTube: search).
-    public init(recipe: Recipe, settings: PlatformSettings = .default, signedIn: Bool = true) throws {
+    /// - shortForm: `.budgetAllowed` drops every rule marked `shortForm`; `.forcedBlocked` keeps
+    ///   them even when their toggle is off (budget used up / short-form schedule on).
+    public init(recipe: Recipe, settings: PlatformSettings = .default, signedIn: Bool = true,
+                shortForm: ShortFormMode = .togglesDecide) throws {
         var r = recipe
         let on = { (toggle: String) in settings.isOn(toggle, in: recipe) }
-        r.routes = recipe.routes.filter { on($0.toggle) }
-        r.hide = recipe.hide.filter { on($0.toggle) }
-        r.heuristics = recipe.heuristics.filter { on($0.toggle) }
+        func keep(_ toggle: String, _ isShortForm: Bool?) -> Bool {
+            guard isShortForm == true else { return on(toggle) }
+            switch shortForm {
+            case .togglesDecide: return on(toggle)
+            case .budgetAllowed: return false
+            case .forcedBlocked: return true
+            }
+        }
+        r.routes = recipe.routes.filter { keep($0.toggle, $0.shortForm) }
+        r.hide = recipe.hide.filter { keep($0.toggle, $0.shortForm) }
+        r.heuristics = recipe.heuristics.filter { keep($0.toggle, $0.shortForm) }
         r.behaviors = recipe.behaviors.filter { on($0.toggle) }
-        r.canaries = recipe.canaries.filter { on($0.toggle) }
+        r.canaries = recipe.canaries.filter { keep($0.toggle, $0.shortForm) }
         r.resourceBlocks = recipe.resourceBlocks.filter { on($0.toggle) }
 
         if !settings.customBlocks.isEmpty || !settings.customHides.isEmpty {
@@ -68,5 +80,6 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
         try RecipeValidator.validate(r)
         self.recipe = r
         self.landingPath = recipe.landingPath(for: settings.landing, signedIn: signedIn)
+        self.shortForm = shortForm
     }
 }

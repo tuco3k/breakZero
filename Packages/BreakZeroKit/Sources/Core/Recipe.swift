@@ -30,13 +30,15 @@ public struct Recipe: Codable, Sendable, Equatable {
     public var resourceBlocks: [ResourceBlock]
     /// How to tell "signed in" from cookies (names only; values are never read).
     public var session: Session?
+    /// Paths whose on-screen time counts against the shared short-form budget.
+    public var shortFormRoutes: [String]
 
     public init(
         platform: String, version: Int, minEngine: Int, hosts: [String], authHosts: [String] = [],
         landing: Landing, toggles: [Toggle], scopes: [String: String] = [:], routes: [RouteRule],
         hide: [HideRule] = [], heuristics: [Heuristic] = [], behaviors: [Behavior] = [],
         allowZones: [String] = [], canaries: [Canary] = [], resourceBlocks: [ResourceBlock] = [],
-        session: Session? = nil
+        session: Session? = nil, shortFormRoutes: [String] = []
     ) {
         self.platform = platform
         self.version = version
@@ -54,6 +56,7 @@ public struct Recipe: Codable, Sendable, Equatable {
         self.canaries = canaries
         self.resourceBlocks = resourceBlocks
         self.session = session
+        self.shortFormRoutes = shortFormRoutes
     }
 
     // Optional arrays default to empty so recipe authors can omit them.
@@ -75,6 +78,7 @@ public struct Recipe: Codable, Sendable, Equatable {
         canaries = try c.decodeIfPresent([Canary].self, forKey: .canaries) ?? []
         resourceBlocks = try c.decodeIfPresent([ResourceBlock].self, forKey: .resourceBlocks) ?? []
         session = try c.decodeIfPresent(Session.self, forKey: .session)
+        shortFormRoutes = try c.decodeIfPresent([String].self, forKey: .shortFormRoutes) ?? []
     }
 
     public struct Session: Codable, Sendable, Equatable {
@@ -131,10 +135,13 @@ public struct Recipe: Codable, Sendable, Equatable {
         public var scope: String?
         /// Name of the capture group that identifies the item for `allowOnce`.
         public var key: String?
+        /// Part of a short-form surface (Reels/Shorts/Spotlight): dropped while the short-form
+        /// budget has time left, forced on when it's used up (see `ShortFormMode`).
+        public var shortForm: Bool?
 
         public init(
             id: String, toggle: String, pattern: String, action: RouteAction,
-            to: String? = nil, scope: String? = nil, key: String? = nil
+            to: String? = nil, scope: String? = nil, key: String? = nil, shortForm: Bool? = nil
         ) {
             self.id = id
             self.toggle = toggle
@@ -143,6 +150,7 @@ public struct Recipe: Codable, Sendable, Equatable {
             self.to = to
             self.scope = scope
             self.key = key
+            self.shortForm = shortForm
         }
     }
 
@@ -152,12 +160,14 @@ public struct Recipe: Codable, Sendable, Equatable {
         public var selector: String
         /// Path regexes where this applies; nil = everywhere outside allow zones.
         public var routes: [String]?
+        public var shortForm: Bool?
 
-        public init(id: String, toggle: String, selector: String, routes: [String]? = nil) {
+        public init(id: String, toggle: String, selector: String, routes: [String]? = nil, shortForm: Bool? = nil) {
             self.id = id
             self.toggle = toggle
             self.selector = selector
             self.routes = routes
+            self.shortForm = shortForm
         }
     }
 
@@ -176,10 +186,11 @@ public struct Recipe: Codable, Sendable, Equatable {
         /// How many ancestors above the match to hide (0 = the match itself).
         public var hideAncestor: Int?
         public var routes: [String]?
+        public var shortForm: Bool?
 
         public init(
             id: String, toggle: String, type: HeuristicType, pattern: String,
-            hideAncestor: Int? = nil, routes: [String]? = nil
+            hideAncestor: Int? = nil, routes: [String]? = nil, shortForm: Bool? = nil
         ) {
             self.id = id
             self.toggle = toggle
@@ -187,6 +198,7 @@ public struct Recipe: Codable, Sendable, Equatable {
             self.pattern = pattern
             self.hideAncestor = hideAncestor
             self.routes = routes
+            self.shortForm = shortForm
         }
     }
 
@@ -234,12 +246,14 @@ public struct Recipe: Codable, Sendable, Equatable {
         public var toggle: String
         public var route: String
         public var mustNotExist: CanaryCheck
+        public var shortForm: Bool?
 
-        public init(id: String, toggle: String, route: String, mustNotExist: CanaryCheck) {
+        public init(id: String, toggle: String, route: String, mustNotExist: CanaryCheck, shortForm: Bool? = nil) {
             self.id = id
             self.toggle = toggle
             self.route = route
             self.mustNotExist = mustNotExist
+            self.shortForm = shortForm
         }
     }
 

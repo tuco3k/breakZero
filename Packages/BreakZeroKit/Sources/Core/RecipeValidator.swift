@@ -52,6 +52,10 @@ public enum RecipeValidator {
         }
 
         for (name, pattern) in recipe.scopes { checkRegex(pattern, "scope \(name)") }
+        for r in recipe.shortFormRoutes {
+            checkRegex(r, "shortFormRoutes")
+            check(r.hasPrefix("^"), "shortFormRoutes must be anchored with ^")
+        }
         for zone in recipe.allowZones { checkRegex(zone, "allowZone") }
 
         for route in recipe.routes {

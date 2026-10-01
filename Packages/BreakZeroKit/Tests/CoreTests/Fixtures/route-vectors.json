@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared by Swift (RuleEngineTests) and Node (jstests/route-guard.test.js). Each case runs in order within its sequence; state carries over. expect: allow | redirect:<target> | external. Default settings unless 'settings' is given. Optional 'signedIn': false uses the recipe's signed-out landing.",
+  "_comment": "Shared by Swift (RuleEngineTests) and Node (jstests/route-guard.test.js). Each case runs in order within its sequence; state carries over. expect: allow | redirect:<target> | external. Default settings unless 'settings' is given. Optional 'signedIn': false uses the recipe's signed-out landing. Optional 'shortForm': togglesDecide | budgetAllowed | forcedBlocked.",
   "sequences": [
     {
       "name": "instagram basics",
@@ -378,6 +378,105 @@
         {
           "url": "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
           "expect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "instagram short-form budget left",
+      "platform": "instagram",
+      "shortForm": "budgetAllowed",
+      "steps": [
+        {
+          "url": "https://www.instagram.com/reels/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reel/ABC/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reel/DEF/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/someone/reels/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/explore/",
+          "expect": "redirect:/direct/inbox/"
+        }
+      ]
+    },
+    {
+      "name": "instagram short-form budget used up overrides toggles",
+      "platform": "instagram",
+      "shortForm": "forcedBlocked",
+      "settings": {
+        "toggles": {
+          "ig.blockReels": false
+        }
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/reels/",
+          "expect": "redirect:/direct/inbox/"
+        },
+        {
+          "url": "https://www.instagram.com/direct/t/9/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reel/A1/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reel/B2/",
+          "expect": "redirect:/direct/t/9/"
+        }
+      ]
+    },
+    {
+      "name": "youtube short-form budget left",
+      "platform": "youtube",
+      "shortForm": "budgetAllowed",
+      "steps": [
+        {
+          "url": "https://m.youtube.com/shorts/abc",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/shorts/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/@ch/shorts",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/",
+          "expect": "redirect:/feed/subscriptions"
+        }
+      ]
+    },
+    {
+      "name": "youtube short-form blocked by schedule",
+      "platform": "youtube",
+      "shortForm": "forcedBlocked",
+      "settings": {
+        "toggles": {
+          "yt.shortsAsVideos": false,
+          "yt.hideShorts": false
+        }
+      },
+      "steps": [
+        {
+          "url": "https://m.youtube.com/shorts/abc",
+          "expect": "redirect:/watch?v=abc"
+        },
+        {
+          "url": "https://m.youtube.com/shorts/",
+          "expect": "redirect:/feed/subscriptions"
         }
       ]
     }

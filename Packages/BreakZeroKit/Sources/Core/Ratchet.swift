@@ -19,6 +19,12 @@ public enum PolicyChange: Codable, Sendable, Equatable {
     /// nil clears the Hard Lock.
     case setHardLock(until: Date?)
     case setRecipeUpdates(Bool)
+    /// nil removes the limit.
+    case setDailyLimit(Platform, minutes: Int?)
+    /// 0 turns the shared short-form budget off.
+    case setShortFormBudget(minutes: Int)
+    case addSchedule(ScheduleRule)
+    case removeSchedule(id: String)
 
     /// Changes with the same key edit the same thing; a newer submission supersedes a pending one.
     public var fieldKey: String {
@@ -37,6 +43,10 @@ public enum PolicyChange: Codable, Sendable, Equatable {
         case .setDenyAppRemoval: "denyAppRemoval"
         case .setHardLock: "hardLock"
         case .setRecipeUpdates: "recipeUpdates"
+        case let .setDailyLimit(p, _): "limit/daily/\(p.rawValue)"
+        case .setShortFormBudget: "limit/shortForm"
+        case let .addSchedule(rule): "schedule/\(rule.id)"
+        case let .removeSchedule(id): "schedule/\(id)"
         }
     }
 }
@@ -94,18 +104,26 @@ public enum SubmitResult: Equatable, Sendable {
 public struct Ratchet: Sendable {
     /// Recipe toggle defaults, needed to know whether a toggle is currently on.
     public var toggleDefaults: [Platform: [String: Bool]]
+    /// Toggles of each platform's short-form *route* rules: all on = short-form unreachable
+    /// without a budget (allowance 0); any off = unlimited.
+    public var shortFormToggles: [Platform: Set<String>]
 
-    public init(toggleDefaults: [Platform: [String: Bool]]) {
+    public init(toggleDefaults: [Platform: [String: Bool]], shortFormToggles: [Platform: Set<String>] = [:]) {
         self.toggleDefaults = toggleDefaults
+        self.shortFormToggles = shortFormToggles
     }
 
     public init(recipes: [Recipe]) {
         var d: [Platform: [String: Bool]] = [:]
+        var sf: [Platform: Set<String>] = [:]
         for r in recipes {
             guard let p = Platform(rawValue: r.platform) else { continue }
             d[p] = Dictionary(uniqueKeysWithValues: r.toggles.map { ($0.id, $0.defaultOn) })
+            let toggles = Set(r.routes.filter { $0.shortForm == true }.map(\.toggle))
+            if !toggles.isEmpty { sf[p] = toggles }
         }
         self.toggleDefaults = d
+        self.shortFormToggles = sf
     }
 
     func isOn(_ p: Platform, _ id: String, _ policy: WallPolicy) -> Bool {
@@ -147,6 +165,24 @@ public struct Ratchet: Sendable {
             return on == policy.lockEnabled ? .neutral : (on ? .tightening : .loosening)
         case let .setDenyAppRemoval(on):
             return on == policy.denyAppRemoval ? .neutral : (on ? .tightening : .loosening)
+        case let .setDailyLimit(p, minutes):
+            // nil = no limit = the loosest.
+            let old = policy.limits.dailyMinutes[p] ?? Int.max
+            return cmp(minutes ?? Int.max, old, looserWhenGreater: true)
+        case let .setShortFormBudget(minutes):
+            var after = policy
+            after.limits.shortFormMinutes = minutes
+            var up = false, down = false
+            for p in shortFormToggles.keys {
+                let before = shortFormAllowance(p, policy), new = shortFormAllowance(p, after)
+                if new > before { up = true } else if new < before { down = true }
+            }
+            return up ? .loosening : (down ? .tightening : .neutral)
+        case let .addSchedule(rule):
+            guard let old = policy.limits.schedules.first(where: { $0.id == rule.id }) else { return .tightening }
+            return old == rule ? .neutral : .loosening
+        case let .removeSchedule(id):
+            return policy.limits.schedules.contains { $0.id == id } ? .loosening : .neutral
         case let .setHardLock(until):
             switch (policy.hardLock?.until, until) {
             case (nil, nil): return .neutral
@@ -157,8 +193,19 @@ public struct Ratchet: Sendable {
         }
     }
 
+    /// Minutes of short-form a day the policy allows on `p`: the budget if it's on, otherwise
+    /// none while every short-form route toggle is on, unlimited if any is off.
+    func shortFormAllowance(_ p: Platform, _ policy: WallPolicy) -> Int {
+        if policy.limits.shortFormMinutes > 0 { return policy.limits.shortFormMinutes }
+        let toggles = shortFormToggles[p] ?? []
+        return toggles.allSatisfy { isOn(p, $0, policy) } ? 0 : Int.max
+    }
+
     func validate(_ change: PolicyChange) -> String? {
         switch change {
+        case let .setDailyLimit(_, m?) where !(1...1440).contains(m): return "daily limit must be 1–1440 minutes"
+        case let .setShortFormBudget(m) where !(0...600).contains(m): return "short-form budget must be 0–600 minutes"
+        case let .addSchedule(rule) where !rule.isValid: return "invalid schedule"
         case let .setPassDuration(m) where !(1...60).contains(m): return "pass duration must be 1–60 minutes"
         case let .setPassWait(s) where !(0...600).contains(s): return "pass wait must be 0–600 seconds"
         case let .setPassCap(n) where !(0...20).contains(n): return "pass cap must be 0–20"
@@ -180,6 +227,10 @@ public struct Ratchet: Sendable {
         lock.ledger.record(sample)
         return changes.map { change in
             if let problem = validate(change) { return .rejectedInvalid(problem) }
+            if case let .addSchedule(rule) = change, policy.limits.schedules.count >= LimitsPolicy.maxSchedules,
+               !policy.limits.schedules.contains(where: { $0.id == rule.id }) {
+                return .rejectedInvalid("at most \(LimitsPolicy.maxSchedules) schedules")
+            }
             let kind = classify(change, against: policy)
             // A newer edit to the same field replaces whatever was waiting.
             lock.pending.removeAll { $0.change.fieldKey == change.fieldKey }
@@ -248,6 +299,12 @@ public struct Ratchet: Sendable {
                 HardLock(until: $0, creditedEnd: lock.ledger.credited + max(0, $0.timeIntervalSince(now)))
             }
         case let .setRecipeUpdates(on): policy.recipeUpdatesEnabled = on
+        case let .setDailyLimit(p, minutes): policy.limits.dailyMinutes[p] = minutes
+        case let .setShortFormBudget(minutes): policy.limits.shortFormMinutes = minutes
+        case let .addSchedule(rule):
+            policy.limits.schedules.removeAll { $0.id == rule.id }
+            policy.limits.schedules.append(rule)
+        case let .removeSchedule(id): policy.limits.schedules.removeAll { $0.id == id }
         }
     }
 }

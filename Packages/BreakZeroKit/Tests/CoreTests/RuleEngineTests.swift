@@ -8,6 +8,7 @@ struct RouteVectors: Decodable {
         var platform: String
         var settings: PlatformSettings?
         var signedIn: Bool?
+        var shortForm: ShortFormMode?
         var steps: [Step]
     }
 
@@ -32,7 +33,7 @@ final class RuleEngineTests: XCTestCase {
         for seq in vectors.sequences {
             let platform = try XCTUnwrap(Platform(rawValue: seq.platform))
             let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(platform), settings: seq.settings ?? .default,
-                                          signedIn: seq.signedIn ?? true)
+                                          signedIn: seq.signedIn ?? true, shortForm: seq.shortForm ?? .togglesDecide)
             let engine = try RuleEngine(active: active)
             var state = NavigationState()
             var current: URL?

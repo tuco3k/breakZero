@@ -13,24 +13,31 @@ function recipe(platform) {
   return JSON.parse(fs.readFileSync(path.join(KIT, 'Sources', 'Core', 'Resources', 'Recipes', platform + '.json'), 'utf8'));
 }
 
-function active(platform, settings = {}, signedIn = true) {
+function active(platform, settings = {}, signedIn = true, shortForm = 'togglesDecide') {
   const r = recipe(platform);
   const toggles = settings.toggles || {};
   const on = (t) => (t in toggles ? toggles[t] : (r.toggles.find((x) => x.id === t) || { defaultOn: true }).defaultOn);
-  const keep = (list) => (list || []).filter((x) => on(x.toggle));
+  // Mirrors ActiveRecipe.init(shortForm:).
+  const keepRule = (x) => {
+    if (!x.shortForm) return on(x.toggle);
+    if (shortForm === 'budgetAllowed') return false;
+    if (shortForm === 'forcedBlocked') return true;
+    return on(x.toggle);
+  };
+  const keep = (list) => (list || []).filter(keepRule);
   const out = Object.assign({}, r, {
     routes: (settings.customBlocks || []).map((p, i) => ({
       id: 'custom.block.' + i, toggle: 'custom', pattern: p.startsWith('^') ? p : '^' + p, action: 'block'
     })).concat(keep(r.routes)),
     hide: keep(r.hide).concat((settings.customHides || []).map((s, i) => ({ id: 'custom.hide.' + i, toggle: 'custom', selector: s }))),
     heuristics: keep(r.heuristics),
-    behaviors: keep(r.behaviors),
+    behaviors: (r.behaviors || []).filter((x) => on(x.toggle)),
     canaries: keep(r.canaries),
     resourceBlocks: keep(r.resourceBlocks)
   });
   let landingKey = settings.landing && r.landing.options[settings.landing] ? settings.landing : r.landing.default;
   if (!signedIn && r.landing.signedOut && r.landing.options[r.landing.signedOut]) landingKey = r.landing.signedOut;
-  return { recipe: out, landingPath: r.landing.options[landingKey] };
+  return { recipe: out, landingPath: r.landing.options[landingKey], shortForm };
 }
 
 function dom(fixture, url) {

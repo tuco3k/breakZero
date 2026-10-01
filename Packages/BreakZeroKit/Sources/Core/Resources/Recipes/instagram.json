@@ -5,6 +5,7 @@
   "hosts": ["instagram.com", "www.instagram.com", "m.instagram.com"],
   "authHosts": ["accounts.instagram.com", "www.facebook.com", "m.facebook.com", "accountscenter.instagram.com"],
   "session": {"cookies": ["sessionid"]},
+  "shortFormRoutes": ["^/reels?(/|$)", "^/[A-Za-z0-9._]+/reels/?$"],
   "landing": {
     "default": "inbox",
     "options": {"inbox": "/direct/inbox/", "following": "/?variant=following"}
@@ -22,24 +23,24 @@
     "fromThread": "^/direct/t/"
   },
   "routes": [
-    {"id": "ig.route.reelsFeed", "toggle": "ig.blockReels", "pattern": "^/reels/?$", "action": "redirect", "to": "{landing}"},
-    {"id": "ig.route.reelsAudio", "toggle": "ig.blockReels", "pattern": "^/reels/audio/", "action": "block"},
-    {"id": "ig.route.reelOnce", "toggle": "ig.blockReels", "pattern": "^/reels?/(?<id>[A-Za-z0-9_-]+)/?$", "action": "allowOnce", "scope": "fromThread", "key": "id"},
-    {"id": "ig.route.profileReels", "toggle": "ig.blockReels", "pattern": "^/(?<user>[A-Za-z0-9._]+)/reels/?$", "action": "redirect", "to": "/{user}/"},
+    {"id": "ig.route.reelsFeed", "toggle": "ig.blockReels", "shortForm": true, "pattern": "^/reels/?$", "action": "redirect", "to": "{landing}"},
+    {"id": "ig.route.reelsAudio", "toggle": "ig.blockReels", "shortForm": true, "pattern": "^/reels/audio/", "action": "block"},
+    {"id": "ig.route.reelOnce", "toggle": "ig.blockReels", "shortForm": true, "pattern": "^/reels?/(?<id>[A-Za-z0-9_-]+)/?$", "action": "allowOnce", "scope": "fromThread", "key": "id"},
+    {"id": "ig.route.profileReels", "toggle": "ig.blockReels", "shortForm": true, "pattern": "^/(?<user>[A-Za-z0-9._]+)/reels/?$", "action": "redirect", "to": "/{user}/"},
     {"id": "ig.route.exploreSearch", "toggle": "ig.blockExplore", "pattern": "^/explore/search(/|$)", "action": "allow"},
     {"id": "ig.route.explore", "toggle": "ig.blockExplore", "pattern": "^/explore(/|$)", "action": "block"},
     {"id": "ig.route.shop", "toggle": "ig.blockShop", "pattern": "^/shop(/|$)", "action": "block"}
   ],
   "hide": [
-    {"id": "ig.hide.reelsTab", "toggle": "ig.hideReelsEntryPoints", "selector": "a[href=\"/reels/\"]"},
+    {"id": "ig.hide.reelsTab", "toggle": "ig.hideReelsEntryPoints", "shortForm": true, "selector": "a[href=\"/reels/\"]"},
     {"id": "ig.hide.exploreTab", "toggle": "ig.blockExplore", "selector": "a[href=\"/explore/\"]"},
-    {"id": "ig.hide.profileReelsTab", "toggle": "ig.hideReelsEntryPoints", "selector": "a[href$=\"/reels/\"]"},
+    {"id": "ig.hide.profileReelsTab", "toggle": "ig.hideReelsEntryPoints", "shortForm": true, "selector": "a[href$=\"/reels/\"]"},
     {"id": "ig.hide.sponsored", "toggle": "ig.hideSponsored", "selector": "article:has(a[href*=\"/ads/\"])", "routes": ["^/$"]},
     {"id": "ig.hide.feed", "toggle": "ig.hideFeed", "selector": "main article", "routes": ["^/$"]}
   ],
   "heuristics": [
-    {"id": "ig.heur.reelLinks", "toggle": "ig.hideReelsEntryPoints", "type": "anchorHref", "pattern": "^/reels?/", "hideAncestor": 0},
-    {"id": "ig.heur.profileReelsTab", "toggle": "ig.hideReelsEntryPoints", "type": "anchorHref", "pattern": "^/[A-Za-z0-9._]+/reels/?$", "hideAncestor": 0},
+    {"id": "ig.heur.reelLinks", "toggle": "ig.hideReelsEntryPoints", "shortForm": true, "type": "anchorHref", "pattern": "^/reels?/", "hideAncestor": 0},
+    {"id": "ig.heur.profileReelsTab", "toggle": "ig.hideReelsEntryPoints", "shortForm": true, "type": "anchorHref", "pattern": "^/[A-Za-z0-9._]+/reels/?$", "hideAncestor": 0},
     {"id": "ig.heur.suggestedPeople", "toggle": "ig.hideSuggested", "type": "anchorHref", "pattern": "^/explore/people/", "hideAncestor": 3, "routes": ["^/$"]},
     {"id": "ig.heur.exploreLinks", "toggle": "ig.blockExplore", "type": "anchorHref", "pattern": "^/explore/?$", "hideAncestor": 0}
   ],
@@ -56,7 +57,7 @@
     "^/legal/"
   ],
   "canaries": [
-    {"id": "ig.canary.reelsTab", "toggle": "ig.hideReelsEntryPoints", "route": "^/", "mustNotExist": {"anchorHref": "^/reels/?$"}},
-    {"id": "ig.canary.reelLinksHome", "toggle": "ig.hideReelsEntryPoints", "route": "^/$", "mustNotExist": {"anchorHref": "^/reels?/[A-Za-z0-9_-]+"}}
+    {"id": "ig.canary.reelsTab", "toggle": "ig.hideReelsEntryPoints", "shortForm": true, "route": "^/", "mustNotExist": {"anchorHref": "^/reels/?$"}},
+    {"id": "ig.canary.reelLinksHome", "toggle": "ig.hideReelsEntryPoints", "shortForm": true, "route": "^/$", "mustNotExist": {"anchorHref": "^/reels?/[A-Za-z0-9_-]+"}}
   ]
 }

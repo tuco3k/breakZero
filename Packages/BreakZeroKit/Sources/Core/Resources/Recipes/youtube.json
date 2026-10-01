@@ -5,6 +5,7 @@
   "hosts": ["youtube.com", "www.youtube.com", "m.youtube.com"],
   "authHosts": ["accounts.google.com", "accounts.youtube.com", "consent.youtube.com", "consent.google.com", "myaccount.google.com"],
   "session": {"cookies": ["LOGIN_INFO", "SID", "__Secure-3PSID"]},
+  "shortFormRoutes": ["^/shorts(/|$)", "^/@[A-Za-z0-9._-]+/shorts/?$"],
   "landing": {
     "default": "subscriptions",
     "options": {"subscriptions": "/feed/subscriptions", "library": "/feed/you", "search": "/results?search_query="},
@@ -22,15 +23,15 @@
   ],
   "routes": [
     {"id": "yt.route.home", "toggle": "yt.landOnSubscriptions", "pattern": "^/$", "action": "redirect", "to": "{landing}"},
-    {"id": "yt.route.shorts", "toggle": "yt.shortsAsVideos", "pattern": "^/shorts/(?<id>[A-Za-z0-9_-]+)/?$", "action": "redirect", "to": "/watch?v={id}"},
-    {"id": "yt.route.shortsFeed", "toggle": "yt.shortsAsVideos", "pattern": "^/shorts/?$", "action": "block"},
-    {"id": "yt.route.channelShorts", "toggle": "yt.hideShorts", "pattern": "^/(?<channel>@[A-Za-z0-9._-]+)/shorts/?$", "action": "redirect", "to": "/{channel}/videos"},
+    {"id": "yt.route.shorts", "toggle": "yt.shortsAsVideos", "shortForm": true, "pattern": "^/shorts/(?<id>[A-Za-z0-9_-]+)/?$", "action": "redirect", "to": "/watch?v={id}"},
+    {"id": "yt.route.shortsFeed", "toggle": "yt.shortsAsVideos", "shortForm": true, "pattern": "^/shorts/?$", "action": "block"},
+    {"id": "yt.route.channelShorts", "toggle": "yt.hideShorts", "shortForm": true, "pattern": "^/(?<channel>@[A-Za-z0-9._-]+)/shorts/?$", "action": "redirect", "to": "/{channel}/videos"},
     {"id": "yt.route.explore", "toggle": "yt.hideRecommendations", "pattern": "^/feed/(explore|trending)(/|$)", "action": "block"}
   ],
   "hide": [
-    {"id": "yt.hide.shortsShelfM", "toggle": "yt.hideShorts", "selector": "ytm-reel-shelf-renderer, ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2"},
-    {"id": "yt.hide.shortsShelfD", "toggle": "yt.hideShorts", "selector": "ytd-reel-shelf-renderer, ytd-rich-shelf-renderer[is-shorts], ytd-guide-entry-renderer:has(a[href^=\"/shorts\"]), ytd-mini-guide-entry-renderer:has(a[href^=\"/shorts\"])"},
-    {"id": "yt.hide.shortsPivot", "toggle": "yt.hideShorts", "selector": "ytm-pivot-bar-item-renderer:has(.pivot-shorts), ytm-pivot-bar-item-renderer:has(a[href^=\"/shorts\"])"},
+    {"id": "yt.hide.shortsShelfM", "toggle": "yt.hideShorts", "shortForm": true, "selector": "ytm-reel-shelf-renderer, ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2"},
+    {"id": "yt.hide.shortsShelfD", "toggle": "yt.hideShorts", "shortForm": true, "selector": "ytd-reel-shelf-renderer, ytd-rich-shelf-renderer[is-shorts], ytd-guide-entry-renderer:has(a[href^=\"/shorts\"]), ytd-mini-guide-entry-renderer:has(a[href^=\"/shorts\"])"},
+    {"id": "yt.hide.shortsPivot", "toggle": "yt.hideShorts", "shortForm": true, "selector": "ytm-pivot-bar-item-renderer:has(.pivot-shorts), ytm-pivot-bar-item-renderer:has(a[href^=\"/shorts\"])"},
     {"id": "yt.hide.homeFeed", "toggle": "yt.hideRecommendations", "selector": "ytm-browse ytm-rich-grid-renderer, ytd-browse[page-subtype=\"home\"] #contents", "routes": ["^/$"]},
     {"id": "yt.hide.relatedM", "toggle": "yt.hideRelated", "selector": "ytm-item-section-renderer[section-identifier=\"related-items\"], ytm-watch-next-secondary-results-renderer, ytm-single-column-watch-next-results-renderer ytm-video-with-context-renderer", "routes": ["^/watch"]},
     {"id": "yt.hide.relatedD", "toggle": "yt.hideRelated", "selector": "#related, ytd-watch-next-secondary-results-renderer", "routes": ["^/watch"]},
@@ -38,7 +39,7 @@
     {"id": "yt.hide.comments", "toggle": "yt.hideComments", "selector": "ytm-comments-entry-point-header-renderer, ytm-comment-section-renderer, ytd-comments#comments, #comments", "routes": ["^/watch"]}
   ],
   "heuristics": [
-    {"id": "yt.heur.shortsLinks", "toggle": "yt.hideShorts", "type": "anchorHref", "pattern": "^/shorts/", "hideAncestor": 2}
+    {"id": "yt.heur.shortsLinks", "toggle": "yt.hideShorts", "shortForm": true, "type": "anchorHref", "pattern": "^/shorts/", "hideAncestor": 2}
   ],
   "behaviors": [
     {"id": "yt.behavior.noAutoAdvance", "toggle": "yt.autoplayOff", "type": "blockAutoAdvance", "routes": ["^/watch"], "param": "v", "exemptParams": ["list"]}
@@ -49,7 +50,7 @@
     "^/upload"
   ],
   "canaries": [
-    {"id": "yt.canary.shortsLinks", "toggle": "yt.hideShorts", "route": "^/(feed/subscriptions|results)", "mustNotExist": {"anchorHref": "^/shorts/"}},
+    {"id": "yt.canary.shortsLinks", "toggle": "yt.hideShorts", "shortForm": true, "route": "^/(feed/subscriptions|results)", "mustNotExist": {"anchorHref": "^/shorts/"}},
     {"id": "yt.canary.related", "toggle": "yt.hideRelated", "route": "^/watch", "mustNotExist": {"selector": "ytm-item-section-renderer[section-identifier=\"related-items\"] ytm-video-with-context-renderer"}}
   ]
 }
