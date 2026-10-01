@@ -138,5 +138,11 @@ Compiled and tested on Linux and macOS: `Core/*`, `LiteWeb/LiteWeb.swift`, `Shie
 - After a container restart the chroot had no `/proc` (Foundation tools crash with SIGILL). Re-ran the
   chroot's original setup step `mount -t proc proc /opt/swiftroot/proc` (not blocked; part of the
   original setup, not a workaround for a block).
+- CI "Swift package tests (Linux)" was red from run 9 (my item 2 commit, not the Mac session's:
+  run 6 for 0ec5866 was green). Cause: `YouTubeFeedParser` trusted `XMLParser.parse()`, and the
+  swift:6.0 image's older libxml2 reports a truncated document as success (my local libxml2 and
+  Apple's parser reject it). Fixed by checking well-formedness ourselves (root `<feed>`, every
+  element closed, no parse error). Not a Swift-version issue (CI and local are both 6.0.3); CI now
+  also runs the package tests on `swift:latest` to catch newer-compiler (Mac/Xcode) errors.
 - Rule from owner: if a command gets blocked, don't try privileged workarounds (e.g. mounts) — log it
   here and move on.

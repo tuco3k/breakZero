@@ -28,5 +28,9 @@
 - Mark every file that hasn't been compiled as **UNVERIFIED** in `PROGRESS.md`, so the owner knows what to build first on the Mac.
 - Write the injected JS/CSS filter scripts so they can also be tested with Node (no browser-only globals at module top level), and test them with Node against HTML fixtures where you can.
 
+## Keeping CI green
+- Keep the `BreakZeroKit` package Linux-compatible: it must build and pass `swift test` on Linux and on the Mac. Don't rely on behavior that differs by platform or library version (e.g. how lenient libxml2 is behind `XMLParser`); check it yourself in code.
+- After every push, check CI (GitHub Actions) and fix anything red before moving on.
+
 ## Commits
 - Small, focused commits. Never force-push. Never commit secrets, signing certificates, or provisioning profiles.

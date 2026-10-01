@@ -90,8 +90,16 @@ final class YouTubeFeedParserTests: XCTestCase {
         XCTAssertEqual(videos[0].watchPath, "/watch?v=VID00000001")
     }
 
-    func testGarbageThrows() {
-        XCTAssertThrowsError(try YouTubeFeedParser.parse(Data("<feed><entry>".utf8)))
+    /// Must behave the same on every libxml2 (Linux CI images differ) and on Apple's parser.
+    func testMalformedOrWrongDocumentsThrow() {
+        for bad in ["<feed><entry>", "<feed>", "<feed><entry></feed>", "", "not xml at all",
+                    "<html><body>Sign in</body></html>", "<feed></feed><feed></feed>"] {
+            XCTAssertThrowsError(try YouTubeFeedParser.parse(Data(bad.utf8)), "should reject: \(bad)")
+        }
+    }
+
+    func testEmptyFeedIsValid() throws {
+        XCTAssertEqual(try YouTubeFeedParser.parse(Data("<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"><title>x</title></feed>".utf8)), [])
     }
 }
 

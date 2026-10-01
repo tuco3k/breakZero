@@ -15,9 +15,16 @@ permissions:
 
 jobs:
   core-tests:
-    name: Swift package tests (Linux)
+    name: Swift package tests (Linux, Swift ${{ matrix.swift }})
     runs-on: ubuntu-latest
-    container: swift:6.0
+    # 6.0 = the floor Package.swift declares (swift-tools-version 6.0).
+    # latest = closest to the newer compiler in the owner's Xcode, so Mac-only compile errors
+    # (stricter checks in newer Swift) show up here too.
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ["6.0", "latest"]
+    container: swift:${{ matrix.swift }}
     steps:
       - uses: actions/checkout@v4
       - name: swift test

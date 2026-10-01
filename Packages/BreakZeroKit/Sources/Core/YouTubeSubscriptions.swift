@@ -116,12 +116,19 @@ public enum YouTubeFeedParser {
         let parser = XMLParser(data: data)
         parser.shouldProcessNamespaces = false
         parser.delegate = delegate
-        guard parser.parse() else { throw ParseError() }
+        let ok = parser.parse()
+        // Don't trust `parse()` alone: on Linux it is libxml2 underneath, and older libxml2
+        // (e.g. Ubuntu 22.04 in the swift:6.0 CI image) reports a truncated document as success.
+        // A real feed is a well-formed <feed> whose every element closed, with no error reported.
+        guard ok, !delegate.failed, delegate.root == "feed", delegate.depth == 0 else { throw ParseError() }
         return delegate.videos
     }
 
     private final class Delegate: NSObject, XMLParserDelegate {
         var videos: [FeedVideo] = []
+        var depth = 0
+        var root: String?
+        var failed = false
         private var inEntry = false
         private var inAuthor = false
         private var text = ""
@@ -139,6 +146,8 @@ public enum YouTubeFeedParser {
 
         func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?,
                     qualifiedName: String?, attributes: [String: String] = [:]) {
+            if depth == 0 { root = root == nil ? name : "<multiple roots>" }
+            depth += 1
             text = ""
             switch name {
             case "entry":
@@ -156,7 +165,12 @@ public enum YouTubeFeedParser {
 
         func parser(_ parser: XMLParser, foundCharacters string: String) { text += string }
 
+        func parser(_ parser: XMLParser, parseErrorOccurred parseError: Error) { failed = true }
+
+        func parser(_ parser: XMLParser, validationErrorOccurred validationError: Error) { failed = true }
+
         func parser(_ parser: XMLParser, didEndElement name: String, namespaceURI: String?, qualifiedName: String?) {
+            depth -= 1
             let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if inEntry {
                 switch name {
