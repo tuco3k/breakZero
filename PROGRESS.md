@@ -9,12 +9,15 @@ free Personal Team. Waiting on owner: install on the iPhone + spike results.
 Phase 1 in progress: recipes, rule engine, all five filter layers and their tests are written;
 the WebKit glue compiles but hasn't run on a device.
 
+Test status (macOS, 2026-10-01): `npm test` (Node 26) → **65 pass**; `swift test` on the macOS host → 96 pass
+(UIKit/WebKit-only tests run in the Xcode scheme below).
+
 Test status (Linux, Swift 6.0.3 + Node 22):
 - `cd Packages/BreakZeroKit && swift test` → **111 tests pass** (Core incl. limits with a fake clock, LiteWeb pure parts, Shielding with fakes).
 - `cd jstests && npm ci && npm test` → **62 tests pass** (shared route vectors for guard and watchdog, DOM filters, canaries, autoplay, media diagnostics).
 
 Test status (macOS, Xcode 27, iPhone 17 Pro Simulator iOS 26.2), `xcodebuild … CODE_SIGNING_ALLOWED=NO build test`:
-- **113 tests pass** (2026-10-01, after feedback round 1): CoreTests 96, LiteWebTests 11, ShieldingTests 5, breakZeroTests 1.
+- **113 tests pass** (2026-10-01, after feedback round 1; build has no warnings): CoreTests 96, LiteWebTests 11, ShieldingTests 5, breakZeroTests 1.
 
 ## Phase 0 task plan
 - [x] P0.1 Read BRIEF/CLAUDE, draft `ARCHITECTURE.md`
@@ -117,27 +120,30 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   `docs/QA.md` › *Limits, budgets and schedules: try to break them*; SECURITY_MODEL.md residual risks.
 
 ## Next — what the owner should test on the phone (lite build is enough)
-Built 2026-10-01 on the Mac (lite, free team 7DTC6L573G) and installed + launched on the owner's
-iPhone 17 Pro; no compile errors, one warning fixed (`DoneForTodayView` missing `import Combine`).
-1. **Layout** (item 1): our tab bar is hidden; the button at the top right of the strip shows/hides
-   it; nothing of ours covers Instagram's bottom navigation or YouTube's controls, with the tab bar
-   shown or hidden.
-2. **Accounts** (item 1): Wall › Accounts shows Instagram/YouTube signed in or out; *Sign out* on
-   one platform signs out only that one (the other stays signed in).
-3. **YouTube** (item 2): signed out, the tab opens on Search (check the page offers a search box);
-   signed in, on Subscriptions. Library, playlists, Watch later, history and channel pages open. Play
-   a few videos; if one won't play, send Diagnostics › Log (look for `video error code …`). Try the
-   sign-in once without the VPN and say whether the "browser didn't seem trustworthy" warning stays.
-4. **No-sign-in Subscriptions** (item 2): from Google Takeout get `subscriptions.csv` (YouTube →
-   subscriptions), tap the list button in the YouTube strip, Import, then open a video from the list.
-5. **Wall explainer** (item 3): appears the first time you open the Wall tab; "What is the wall?" brings
-   it back; the free-build section is correct.
-6. **Limits** (item 4) and **watchdog** (item 5): run the new *Limits, budgets and schedules* section
-   of `docs/QA.md` end to end. Every path must hard-stop within about a second.
-7. **Snapchat spike S8** (item 6): `docs/ON_DEVICE_CHECKLIST.md` step 18.
-8. YouTube playback after #27: open a video, it should start without an extra tap; let it finish,
-   it must not move to another video. Note whether muted previews start by themselves in feeds.
-Still open from before: checklist steps 1–17 (spikes S1, S3–S7 need the paid Screen Time build).
+Installed on the owner's iPhone 2026-10-01 (free team; reinstall after 7 days).
+1. **Top-right bar button**: shows/hides our tab bar. Hidden: the site runs to the bottom of the
+   screen (no white bar, fixed 8f9c8ff, confirmed). Shown: nothing of ours covers Instagram's bottom
+   navigation or YouTube's controls.
+2. **Accounts**: Wall › Accounts shows signed in/out per platform; *Sign out* signs out only that one.
+3. **YouTube playback, VPN on and off**: play 3–4 videos each way. Each starts without an extra tap;
+   when one finishes it doesn't move to another. If one won't play, send Diagnostics › Log
+   (`video error code …` / `stalled`). Also try signing in once with the VPN off: does the "browser
+   didn't seem trustworthy" warning stay? Signed out the tab opens on Search; library, playlists,
+   Watch later, history and channel pages open.
+4. **Subscriptions without signing in**: Takeout `subscriptions.csv` → list button in the YouTube
+   strip → Import → open a video.
+5. **Wall explainer**: shows the first time you open the Wall tab; "What is the wall?" brings it back;
+   the free-build section is right.
+6. **2-minute short-form budget hard-stops you**: Wall › Limits › Reels/Shorts budget = 2 min
+   (instant while the Lock is off; with the Lock on, turning a budget on waits the cooldown). Watch
+   reels: at 2:00 the reel stops within about a second, you land on the inbox, the strip says
+   "Reels/Shorts done today". Then try the Reels tab, a reel link, back/forward and a pasted
+   `/reels/` URL: each bounces within a second. Full list: `docs/QA.md` › *Limits, budgets and
+   schedules*.
+7. **Snapchat web spike (S8)**: Diagnostics › *S8 · Snapchat web chat*, desktop Safari UA first. Does
+   web.snapchat.com load, can you sign in, open a chat, send and receive? Paste the *Check Snapchat
+   session* cookie-name line. Details: `docs/ON_DEVICE_CHECKLIST.md` step 18.
+Still open from before: checklist steps 1–17 (S1, S3–S7 need the paid Screen Time build).
 
 ## Unverified
 Everything compiles on macOS (lite build, 2026-10-01; full build last checked at `0ec5866`). The lite
