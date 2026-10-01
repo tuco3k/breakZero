@@ -7,6 +7,7 @@ import Photos
 import Shielding
 import SwiftUI
 import UIKit
+import WebKit
 
 enum AppTab: Hashable {
     case lite(Platform)
@@ -38,8 +39,8 @@ final class AppModel {
     static let tabBarKey = "bz.tabBarVisible"
     /// Signed in/out per platform (nil = not checked yet). Cookie names only.
     private(set) var sessions: [Platform: Bool] = [:]
-    /// Short message shown in the lite header strip (e.g. why the watchdog moved you).
-    private(set) var toast: Toast?
+    /// The one toast on screen (coalesced, ~2 s, never blocking; QUESTIONS #56).
+    private(set) var toasts = ToastCenter()
     /// Today's usage (trusted time) and what the limits say about it right now.
     private(set) var usage = UsageState()
     private(set) var limitStatus = LimitStatus.unlimited
@@ -48,17 +49,18 @@ final class AppModel {
     private var meterTimer: Timer?
     private var ticks = 0
     private var matchers: [Platform: ShortFormMatcher] = [:]
-    /// Old Instagram setup: usernames read from the user's own lists (suggestions only).
-    private(set) var friendsScan = FriendsScanState()
-    /// While set and in the future, the Instagram page reads usernames on list pages.
+    /// Feed rules data: who follows the user and whom they follow (on-device; refreshing is data).
+    private(set) var people = PeopleData()
+    /// Auto-scroll sync of the user's own lists (persisted so the next session continues).
+    private(set) var sync: SyncSession?
+    /// Manual scrolling (last resort): while set and in the future, list pages are read.
     private(set) var scanUntil: Date?
     static let scanDuration: TimeInterval = 30 * 60
-
-    struct Toast: Equatable, Identifiable {
-        let id = UUID()
-        let platform: Platform?
-        let text: String
-    }
+    /// Accounts the feed rules hid during this app run (status pill), newest first.
+    private(set) var recentlyHidden: [String] = []
+    private(set) var hiddenCount = 0
+    /// The person whose story is on screen in the Instagram tab (for "Hide @user"), if any.
+    private(set) var instagramStoryUser: String?
     let launchedAt: Date
 
     struct IdentifiedURL: Identifiable {
@@ -84,7 +86,9 @@ final class AppModel {
         recipes = r
         for (p, recipe) in r { matchers[p] = ShortFormMatcher(recipe) }
         usage = (try? store.read(UsageState.self, UsageState.file)) ?? UsageState()
-        friendsScan = (try? store.read(FriendsScanState.self, FriendsScanState.file)) ?? FriendsScanState()
+        people = Self.loadPeople(store)
+        sync = try? store.read(SyncSession.self, SyncSession.file)
+        if var s = sync, s.running { s.stop(.userStopped); sync = s }   // never resume scrolling by itself
         reload()
         if let first = policy.enabledPlatforms.first { selectedTab = .lite(first) } else { selectedTab = .wall }
     }
@@ -156,7 +160,7 @@ final class AppModel {
         // Unknown session (not checked yet) counts as signed in; the check runs before first load.
         let signedIn = sessions[p] ?? true
         if let a = try? ActiveRecipe(recipe: recipe, settings: policy.settings(for: p), signedIn: signedIn,
-                                     shortForm: limitStatus.shortForm) { return a }
+                                     shortForm: limitStatus.shortFormMode(p), people: p == .instagram ? people : nil) { return a }
         // A bad custom rule must never take the platform's filters down: fall back to defaults.
         log("settings for \(p.rawValue) invalid; using recipe defaults")
         return try? ActiveRecipe(recipe: recipe)
@@ -185,7 +189,11 @@ final class AppModel {
         c.onDownloaded = { [weak self] url in self?.saveToPhotos(url) }
         c.onCookiesChanged = { [weak self] in Task { await self?.updateSession(p, thenLoadLanding: false) } }
         c.onViolation = { [weak self] v in self?.handleViolation(p, v) }
-        c.onFriendsScan = { [weak self] list, owner, names in self?.mergeScan(list, owner: owner, usernames: names) }
+        c.onFriendsScan = { [weak self] list, owner, names in self?.handleScan(list, owner: owner, usernames: names) }
+        c.onFriendsHidden = { [weak self] names in self?.noteHidden(names) }
+        c.onHideAccount = { [weak self] name in self?.hideAccount(name) }
+        c.onSyncEvent = { [weak self] list, event in self?.handleSyncEvent(list, event) }
+        c.onRouteChange = { [weak self] url in self?.routeChanged(p, url) }
         c.setLimits(LiteLimits(blocked: limitStatus.platformBlock[p]?.rawValue))
         c.setWatchdogRunning(isForeground)
         controllers[p] = c
@@ -260,72 +268,284 @@ final class AppModel {
         await refreshSessions()
     }
 
-    // MARK: Old Instagram (friends only)
+    // MARK: Feed rules (ARCHITECTURE.md §4c rev. 2)
 
-    var friends: [String] { policy.settings(for: .instagram).friends }
+    var igSettings: PlatformSettings { policy.settings(for: .instagram) }
 
-    /// Old Instagram is filtering right now (toggle on and at least one friend).
-    var friendsActive: Bool {
+    /// Feed rules' switch is on (they filter once there's something to filter).
+    var feedRulesOn: Bool {
         guard let r = recipes[.instagram] else { return false }
-        return policy.settings(for: .instagram).friendsActive(in: r)
+        return igSettings.feedRulesOn(in: r)
     }
 
-    var friendSuggestions: [String] { friendsScan.suggestions(excluding: friends) }
+    /// Something is being filtered right now.
+    var feedRulesActive: Bool { activeRecipe(.instagram)?.friends != nil }
 
-    /// Friends waiting for the cooldown (they show as pending, not as friends yet).
-    var pendingFriendAdds: [(username: String, due: Date)] {
-        lock.pending.compactMap { p in
-            if case let .addFriend(.instagram, u) = p.change { return (u, p.estimatedDue) }
-            return nil
+    /// Pill text: "Mutuals only", "Everyone I follow"… (the feed's rule).
+    var feedRuleName: String { Self.audienceName(igSettings.audience(.feed)) }
+
+    static func audienceName(_ a: Audience) -> String {
+        switch a {
+        case .everyone: String(localized: "Everyone I follow")
+        case .mutuals: String(localized: "Mutuals only")
+        case .myList: String(localized: "My list")
+        case .closeFriends: String(localized: "Close Friends")
         }
     }
+
+    /// A rule needs data that isn't there yet (mutuals before any import).
+    func needsData(_ surface: FeedSurface) -> Bool {
+        let a = igSettings.audience(surface)
+        switch a {
+        case .mutuals: return !people.hasMutualsData
+        case .closeFriends: return people.closeFriends.isEmpty
+        case .everyone: return people.following.isEmpty
+        case .myList: return false
+        }
+    }
+
+    /// People changes waiting for the cooldown, per list.
+    func pendingPeople(_ list: PeopleList) -> [(username: String, adding: Bool, due: Date)] {
+        lock.pending.compactMap { p in
+            switch p.change {
+            case let .addPerson(.instagram, l, u) where l == list: (u, true, p.estimatedDue)
+            case let .removePerson(.instagram, l, u) where l == list: (u, false, p.estimatedDue)
+            case let .addFriend(.instagram, u) where list == .myList: (u, true, p.estimatedDue)
+            default: nil
+            }
+        }
+    }
+
+    func savePeople() {
+        try? store.write(people, PeopleData.file)
+    }
+
+    /// New data (import, sync, scan): rebuild the Instagram view's rules without a cooldown.
+    func peopleChanged() {
+        savePeople()
+        if let c = controllers[.instagram], let active = activeRecipe(.instagram) {
+            try? c.update(active: active, reload: false)
+        }
+    }
+
+    // Import (recommended setup)
+
+    struct ImportSummary: Equatable {
+        var mutuals: Int
+        var following: Int
+        var followers: Int
+        var closeFriends: Int?
+    }
+
+    /// Instagram's data export: the .zip or the JSON files from it. Read and parsed off the main
+    /// thread; replaces followers/following (removed people disappear at once). Data, not a rule
+    /// change, so no cooldown.
+    func importExport(_ urls: [URL]) async throws -> ImportSummary {
+        let files: [(name: String, data: Data)] = try await Task.detached(priority: .userInitiated) {
+            try urls.map { url in
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                guard size <= ExportImporter.maxArchiveBytes else { throw ExportImporter.Failure.tooLarge }
+                return (url.lastPathComponent, try Data(contentsOf: url, options: .mappedIfSafe))
+            }
+        }.value
+        let imported = try await Task.detached(priority: .userInitiated) { try ExportImporter.importFiles(files) }.value
+        var next = people
+        try next.replace(followers: imported.followers, following: imported.following, closeFriends: imported.closeFriends,
+                         owner: imported.owner, now: Date())
+        people = next
+        peopleChanged()
+        log("people imported from export: \(imported.mutuals.count) mutuals, \(imported.following.count) following, \(imported.followers.count) followers")
+        return ImportSummary(mutuals: imported.mutuals.count, following: imported.following.count,
+                             followers: imported.followers.count, closeFriends: imported.closeFriends?.count)
+    }
+
+    // Auto-scroll sync (optional)
+
+    var syncRunning: Bool { sync?.running ?? false }
+
+    /// Start or resume on the user's tap: open their own Followers (or where the last session
+    /// stopped) in the Instagram tab and scroll it visibly.
+    func startSync(owner raw: String) {
+        guard let owner = Friends.normalize(raw), policy.enabledPlatforms.contains(.instagram),
+              let c = controller(for: .instagram) else { return }
+        stopManualScan()
+        var s = (sync?.owner == owner ? sync : nil) ?? SyncSession(owner: owner)
+        s.begin(people: people)
+        sync = s
+        saveSync()
+        guard let list = s.currentList else { return }
+        log("sync started (\(list.rawValue))")
+        selectedTab = .lite(.instagram)
+        c.load(path: "/\(owner)/\(list.rawValue)/")
+        c.setSync(LiteSync(list: list, owner: owner))
+    }
+
+    func stopSync(_ reason: SyncStopReason = .userStopped) {
+        guard var s = sync, s.running else { return }
+        s.stop(reason)
+        sync = s
+        saveSync()
+        controllers[.instagram]?.setSync(nil)
+        log("sync stopped: \(reason.rawValue)")
+        if reason.isWarning {
+            showToast(String(localized: "Instagram showed a warning. Sync stopped; try again later."), kind: "sync")
+        }
+    }
+
+    private func saveSync() {
+        if let sync { try? store.write(sync, SyncSession.file) }
+    }
+
+    private func handleSyncNames(_ list: FriendsScanList, _ names: [String]) {
+        guard var s = sync, s.running else { return }
+        var p = people
+        let step = s.record(list, names, people: &p, now: Date())
+        sync = s
+        if p != people { people = p; peopleChanged() }
+        saveSync()
+        if case .stop = step {
+            controllers[.instagram]?.setSync(nil)
+            showToast(String(localized: "Read \(s.cap) new names. Tap Continue later to read more."), kind: "sync")
+        }
+    }
+
+    private func handleSyncEvent(_ list: FriendsScanList, _ event: SyncPageEvent) {
+        guard var s = sync, s.running else { return }
+        switch event {
+        case .end:
+            var p = people
+            let step = s.reachedEnd(list, people: &p, now: Date())
+            sync = s
+            if p != people { people = p; peopleChanged() }
+            saveSync()
+            switch step {
+            case let .nextList(next):
+                controllers[.instagram]?.load(path: "/\(s.owner)/\(next.rawValue)/")
+                controllers[.instagram]?.setSync(LiteSync(list: next, owner: s.owner))
+            case .finished:
+                controllers[.instagram]?.setSync(nil)
+                log("sync finished: \(people.mutuals.count) mutuals")
+                showToast(String(localized: "Sync done: \(people.mutuals.count) mutuals."), kind: "sync")
+            default:
+                break
+            }
+        case .stalled: stopSync(.stalled)
+        case .challenge: stopSync(.challenge)
+        case .login: stopSync(.login)
+        case .warning: stopSync(.warning)
+        case .leftPage: stopSync(.leftPage)
+        }
+    }
+
+    // Manual scrolling (last resort)
 
     var isScanning: Bool { scanUntil.map { $0 > Date() } ?? false }
 
     /// Arm the read-only collector for 30 minutes and show the Instagram tab (optionally at `path`).
-    /// The user opens their own lists and scrolls; nothing is fetched for them.
-    func startFriendsScan(open path: String? = nil) {
+    /// The user opens their own lists and scrolls; nothing is fetched for them. Adds only.
+    func startManualScan(open path: String? = nil) {
         guard policy.enabledPlatforms.contains(.instagram), let c = controller(for: .instagram) else { return }
+        stopSync()
         scanUntil = Date().addingTimeInterval(Self.scanDuration)
         c.setScanning(true)
-        log("friends scan started (30 min)")
+        log("manual scan started (30 min)")
         selectedTab = .lite(.instagram)
         if let path { c.load(path: path) }
     }
 
-    func stopFriendsScan() {
+    func stopManualScan() {
         guard scanUntil != nil else { return }
         scanUntil = nil
         controllers[.instagram]?.setScanning(false)
-        log("friends scan stopped")
+        log("manual scan stopped")
     }
 
-    func mergeScan(_ list: FriendsScanList, owner: String?, usernames: [String]) {
+    private func handleScan(_ list: FriendsScanList, owner: String?, usernames: [String]) {
+        if syncRunning, sync?.currentList == list { handleSyncNames(list, usernames); return }
         guard isScanning else { return }
-        var next = friendsScan
-        let added = next.merge(list, owner: owner, usernames: usernames, now: Date())
-        guard added > 0 || next != friendsScan else { return }
-        friendsScan = next
-        try? store.write(next, FriendsScanState.file)
-        log("friends scan: +\(added) from \(list.rawValue)")   // counts only, never names
+        var p = people
+        if list != .closeFriends, let owner { p.owner = p.owner ?? owner }
+        let added = p.add(list, usernames, source: .manual, now: Date())
+        guard added > 0 else { return }
+        people = p
+        peopleChanged()
+        log("manual scan: +\(added) from \(list.rawValue)")   // counts only, never names
     }
 
-    func clearFriendsScan() {
-        friendsScan = FriendsScanState()
-        try? store.write(friendsScan, FriendsScanState.file)
-    }
+    // Lists (rules go through the ratchet)
 
-    /// Adds go through the ratchet (loosening, except the first friend); returns the results.
     @discardableResult
-    func addFriends(_ usernames: [String]) -> [SubmitResult] {
+    func changePeople(_ list: PeopleList, add: Bool, _ usernames: [String]) -> [SubmitResult] {
         let names = Array(Set(usernames.compactMap(Friends.normalize))).sorted()
         guard !names.isEmpty else { return [] }
-        return submit(names.map { .addFriend(.instagram, username: $0) })
+        let results = submit(names.map { add ? .addPerson(.instagram, list, username: $0) : .removePerson(.instagram, list, username: $0) })
+        reportPeopleResults(results, list: list, add: add)
+        return results
     }
 
-    @discardableResult
-    func removeFriend(_ username: String) -> SubmitResult? {
-        submit([.removeFriend(.instagram, username: username)]).first
+    /// One coalesced toast for a bulk change: "Added 5 people to Never show", "3 wait for the cooldown".
+    func reportPeopleResults(_ results: [SubmitResult], list: PeopleList, add: Bool) {
+        let applied = results.filter { if case .applied = $0 { return true }; return false }.count
+        let queued = results.compactMap { r -> PendingChange? in if case let .queued(p) = r { return p }; return nil }
+        if let first = queued.first {
+            showToast(String(localized: "\(queued.count) waiting for the cooldown (about \(first.estimatedDue.formatted(date: .abbreviated, time: .shortened)))."),
+                      kind: "people.queued")
+        }
+        if applied > 0 {
+            let where_ = Self.listName(list)
+            showToast(add ? String(localized: "Added \(applied) to \(where_)") : String(localized: "Removed \(applied) from \(where_)"),
+                      kind: "people.\(list.rawValue).\(add)")
+        }
+        if let why = results.lazy.compactMap({ r -> String? in if case let .rejectedInvalid(w) = r { return w }; return nil }).first {
+            showToast(why, kind: "people.invalid")
+        }
+        if let until = results.lazy.compactMap({ r -> Date? in if case let .rejectedHardLock(d) = r { return d }; return nil }).first {
+            showToast(String(localized: "Hard Lock until \(until.formatted(date: .abbreviated, time: .shortened))."), kind: "hardlock")
+        }
+    }
+
+    static func listName(_ l: PeopleList) -> String {
+        switch l {
+        case .myList: String(localized: "My list")
+        case .always: String(localized: "Always show")
+        case .never: String(localized: "Never show")
+        }
+    }
+
+    /// The one-tap hide (post button, story strip button, hidden-recently sheet): narrowing, instant.
+    func hideAccount(_ username: String) {
+        guard let u = Friends.normalize(username) else { return }
+        let results = submit([.addPerson(.instagram, .never, username: u)])
+        if case .applied = results.first {
+            showToast(String(localized: "Hidden @\(u)"), kind: "hidden") { n in String(localized: "Hidden \(n) accounts") }
+        }
+    }
+
+    /// Who the rules hid recently (this app run, newest first, on device only; never logged).
+    private func noteHidden(_ names: [String]) {
+        for n in names {
+            recentlyHidden.removeAll { $0 == n }
+            recentlyHidden.insert(n, at: 0)
+        }
+        if recentlyHidden.count > 200 { recentlyHidden.removeLast(recentlyHidden.count - 200) }
+        hiddenCount = recentlyHidden.count
+    }
+
+    /// rev. 1 kept suggestions in `ig-friends-scan.json`; fold them in once (adds only).
+    static func loadPeople(_ store: SharedStore) -> PeopleData {
+        if let p = try? store.read(PeopleData.self, PeopleData.file) { return p }
+        struct LegacyScan: Decodable { var owner: String?; var followers: Set<String>?; var following: Set<String>?; var closeFriends: Set<String>? }
+        guard let old = try? store.read(LegacyScan.self, PeopleData.legacyFile) else { return PeopleData() }
+        return PeopleData(owner: old.owner, followers: old.followers ?? [], following: old.following ?? [],
+                          closeFriends: old.closeFriends ?? [], updatedAt: Date(), source: .manual)
+    }
+
+    private func routeChanged(_ p: Platform, _ url: URL) {
+        guard p == .instagram, let r = recipes[.instagram]?.friendsFilter, let re = try? PathRegex(r.storyRoute) else { return }
+        let user = re.firstMatch(RuleEngine.path(url))?["user"]?.lowercased()
+        instagramStoryUser = user.flatMap { r.storyExempt.contains($0) ? nil : $0 }
     }
 
     // MARK: Login-free YouTube (RSS + Takeout CSV)
@@ -407,7 +627,8 @@ final class AppModel {
 
     func tickUsage(counting: Bool) {
         let sample = SystemClockSource().sample()
-        if let until = scanUntil, sample.wall >= until { stopFriendsScan() }
+        if let until = scanUntil, sample.wall >= until { stopManualScan() }
+        _ = toasts.expire(at: sample.wall)
         usage.tick(sample, activity: counting ? currentActivity : nil, timeZone: .current)
         ticks += 1
         if ticks % 5 == 0 { saveUsage() }
@@ -463,7 +684,7 @@ final class AppModel {
         let text = violationText(p, v)
         log("watchdog (\(v.source.rawValue)) \(v.reason)\(v.detail.map { "/" + $0 } ?? "") \(v.ruleID ?? ""): \(text)",
             source: "watchdog.\(p.rawValue)")
-        showToast(text, platform: p)
+        showToast(text, kind: "violation.\(p.rawValue).\(v.ruleID ?? v.reason)")
     }
 
     func violationText(_ p: Platform, _ v: WatchdogViolation) -> String {
@@ -472,11 +693,16 @@ final class AppModel {
                 : String(localized: "Daily limit reached for \(p.displayName).")
         }
         if v.ruleID == Friends.storyGateID {
-            return String(localized: "Only friends' stories here.")
+            if v.reason == "bounced" {
+                return igSettings.profileStories
+                    ? String(localized: "Their stories only. You're back on their profile.")
+                    : String(localized: "Stories from outside your rules are off. Their profile still works.")
+            }
+            return String(localized: "Skipped a story outside your rules.")
         }
         let isShortFormRule = v.ruleID.flatMap { id in recipes[p]?.routes.first { $0.id == id }?.shortForm } ?? false
-        if isShortFormRule, limitStatus.shortForm == .forcedBlocked {
-            return limitStatus.shortFormReason == .shortFormSchedule
+        if isShortFormRule, limitStatus.shortFormMode(p) == .forcedBlocked {
+            return limitStatus.shortFormReason(p) == .shortFormSchedule
                 ? String(localized: "Reels and Shorts are off by schedule.")
                 : String(localized: "Reels/Shorts time is used up for today.")
         }
@@ -515,14 +741,46 @@ final class AppModel {
 
     // MARK: Toast
 
-    func showToast(_ text: String, platform: Platform? = nil) {
-        let t = Toast(platform: platform, text: text)
-        toast = t
+    /// Show one toast. The same `kind` within 2 s merges into the toast on screen; `merged`
+    /// words the count ("Hidden 3 accounts"). Gone ~2 s after its last update.
+    func showToast(_ text: String, kind: String, merged: ((Int) -> String)? = nil) {
+        let now = Date()
+        toasts.post(kind: kind, at: now) { n in n == 1 ? text : (merged?(n) ?? text) }
+        let id = toasts.current?.id
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(4))
-            if self?.toast?.id == t.id { self?.toast = nil }
+            try? await Task.sleep(for: .seconds(ToastCenter.displayFor))
+            guard let self, self.toasts.current?.id == id else { return }
+            self.toasts.expire(at: Date())
         }
     }
+
+    // MARK: Lock grace period
+
+    /// Seconds left to undo the Lock, or nil.
+    func graceRemaining(now: ClockSample = SystemClockSource().sample()) -> TimeInterval? {
+        guard policy.lockEnabled else { return nil }
+        return lock.grace?.remaining(at: now)
+    }
+
+    #if DEBUG
+    // MARK: Debug reset (compiled out of Release; scripts/check-release-no-debug-reset.sh)
+
+    static let debugResetMarker = "BZ_DEBUG_RESET_MARKER"
+
+    /// Wipe everything breakZero stored, including each lite view's web data, then close the app.
+    func resetAllDataAndQuit() async {
+        log(Self.debugResetMarker)
+        for c in controllers.values { c.webView.stopLoading() }
+        controllers = [:]
+        try? FileManager.default.removeItem(at: store.directory)
+        if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
+        for p in Platform.allCases {
+            try? await WKWebsiteDataStore.remove(forIdentifier: LiteWebController.dataStoreID(p))
+        }
+        await WKWebsiteDataStore.default().removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+        exit(0)
+    }
+    #endif
 
     // MARK: Deep links
 

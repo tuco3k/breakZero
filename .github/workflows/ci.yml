@@ -75,3 +75,5 @@ jobs:
             if [ "$mode" = YES ] && [ "$count" != 3 ]; then exit 1; fi
             if [ "$mode" = NO ] && [ "$count" != 0 ]; then exit 1; fi
           done
+      - name: Debug-only reset is compiled out of Release
+        run: scripts/check-release-no-debug-reset.sh build/release-check

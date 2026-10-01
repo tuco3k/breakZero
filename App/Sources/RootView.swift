@@ -18,6 +18,8 @@ struct RootView: View {
         .sheet(item: $model.externalURL) { item in
             SafariView(url: item.url).ignoresSafeArea()
         }
+        // One toast at a time, never in the way of a tap (QUESTIONS #56).
+        .overlay(alignment: .top) { ToastOverlay().allowsHitTesting(false) }
     }
 
     private var tabs: some View {
@@ -72,27 +74,41 @@ struct LiteTab: View {
     }
 }
 
-/// Slim native strip above a lite view: a short status message on the left (toasts), and the
+/// Slim native strip above a lite view: status on the left (feed-rules pill, time left), and the
 /// button that shows/hides our tab bar on the right. Its own row, so it can't cover the site.
 struct LiteHeaderStrip: View {
     @Environment(AppModel.self) private var model
     let platform: Platform
     @State private var showSubscriptions = false
+    @State private var showHidden = false
 
     var body: some View {
         @Bindable var model = model
         HStack(spacing: 8) {
-            if let toast = model.toast, toast.platform == nil || toast.platform == platform {
-                Label(toast.text, systemImage: "hand.raised")
-                    .font(.footnote.weight(.medium))
-                    .lineLimit(1)
-                    .transition(.opacity)
-                    .accessibilityAddTraits(.updatesFrequently)
+            if platform == .instagram, let story = model.instagramStoryUser, model.feedRulesOn {
+                // While a story plays: one tap to never see this person again (narrowing, instant).
+                Button { model.hideAccount(story) } label: {
+                    Label(String(localized: "Hide @\(story)"), systemImage: "eye.slash")
+                        .font(.footnote.weight(.medium))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+            } else if platform == .instagram, model.feedRulesActive {
+                Button { showHidden = true } label: {
+                    Text("\(model.feedRuleName) · \(model.hiddenCount) hidden")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(Text("Shows who was hidden recently"))
             } else {
                 Text(platform.displayName)
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.secondary)
-                if let left = model.limitStatus.shortFormRemaining {
+                if let left = model.limitStatus.shortFormRemaining(platform) {
                     Text(left > 0 ? "· Reels/Shorts \(Int((left / 60).rounded(.up))) min left" : "· Reels/Shorts done today")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -130,8 +146,8 @@ struct LiteHeaderStrip: View {
         .padding(.trailing, 4)
         .frame(height: 32)
         .background(.bar)
-        .animation(.default, value: model.toast)
         .sheet(isPresented: $showSubscriptions) { YouTubeSubscriptionsView() }
+        .sheet(isPresented: $showHidden) { HiddenRecentlyView() }
     }
 }
 
@@ -149,6 +165,28 @@ extension Platform {
         case .instagram: "bubble.left.and.bubble.right"
         case .youtube: "play.rectangle"
         case .snapchat: "message"
+        }
+    }
+}
+
+/// The app's single toast: top of the screen, non-interactive, merged and short-lived (ToastCenter).
+struct ToastOverlay: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if let t = model.toasts.current {
+            Text(t.text)
+                .font(.footnote.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.top, 52)
+                .padding(.horizontal, 24)
+                .transition(.opacity)
+                .id(t.id)
+                .accessibilityAddTraits(.updatesFrequently)
+                .animation(.easeInOut(duration: 0.2), value: t.text)
         }
     }
 }

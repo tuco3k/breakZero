@@ -74,6 +74,8 @@ public final class LiteWebController: NSObject {
     /// The one-tap hide on a post.
     public var onHideAccount: ((String) -> Void)?
     public var onSyncEvent: ((FriendsScanList, SyncPageEvent) -> Void)?
+    /// The page's URL changed (SPA route or full load).
+    public var onRouteChange: ((URL) -> Void)?
     /// Feed rules: read usernames on list pages (manual setup). Off unless the user started a scan.
     public private(set) var scanning = false
     /// Feed rules: auto-scroll this list. nil unless the user started a sync.
@@ -317,6 +319,7 @@ public final class LiteWebController: NSObject {
         case let .route(href, newState):
             lastJSReportedHref = href
             if let newState { state = newState }
+            if let url = URL(string: href) { onRouteChange?(url) }
         case let .redirect(reason, ruleID):
             lastJSReportedHref = nil
             onEvent?("guard redirect \(reason) \(ruleID ?? "")")
@@ -430,6 +433,7 @@ extension LiteWebController: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         lastCommittedURL = webView.url
+        if let url = webView.url { onRouteChange?(url) }
         mediaReports = 0
     }
 

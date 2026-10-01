@@ -17,9 +17,22 @@ struct DiagnosticsView: View {
     @State private var pickerShown = false
     @State private var selection = FamilyActivitySelection()
     @State private var probe: Probe?
+    @State private var results = SpikeResults()
+    @State private var confirmReset = false
 
     var body: some View {
         List {
+            Section {
+                ForEach(SpikeCatalog.all) { spike in
+                    SpikeRow(spike: spike, result: results.result(spike.id)) { status in
+                        results.set(spike.id, status, note: String(localized: "Set by hand"), source: .owner)
+                        results.save(model.store)
+                    }
+                }
+            } header: { Text("Spike results") } footer: {
+                Text("PASS and FAIL come from a check run here or from what you reported. UNKNOWN means not tested yet.")
+            }
+
             #if !BZ_SCREEN_TIME
             Section {
                 Text("iOS \(UIDevice.current.systemVersion) · Screen Time is compiled out of this build. S1 shielding, S5 and S7 need a build generated with BZ_SCREEN_TIME=YES.")
@@ -75,11 +88,11 @@ struct DiagnosticsView: View {
             }
 
             Section {
-                Button("Run S9 · Does ?variant=following stick?") {
+                Button("Run S9 again · Does ?variant=following stick?") {
                     probe = .init(url: "https://www.instagram.com/?variant=following", store: .platform(.instagram), ua: .webKitDefault,
                                   check: .followingVariant)
                 }
-                Button("Run S10 · Can we open Close Friends?") {
+                Button("Run S10 again · Can we open Close Friends?") {
                     probe = .init(url: "https://www.instagram.com/accounts/close_friends/", store: .platform(.instagram), ua: .webKitDefault,
                                   check: .closeFriends)
                 }
@@ -154,6 +167,14 @@ struct DiagnosticsView: View {
             }
             #endif
 
+            #if DEBUG
+            Section {
+                Button("Reset all breakZero data", role: .destructive) { confirmReset = true }
+            } header: { Text("Debug build only") } footer: {
+                Text("Clears the wall, lock, lists, limits, ledgers and every lite view's web data (you'll be signed out), then closes the app. Not in release builds.")
+            }
+            #endif
+
             Section {
                 ForEach(entries.reversed()) { e in
                     VStack(alignment: .leading, spacing: 2) {
@@ -181,15 +202,26 @@ struct DiagnosticsView: View {
             } catch { log("saving selection failed: \(error)") }
         }
         #endif
+        #if DEBUG
+        .confirmationDialog("Reset all breakZero data?", isPresented: $confirmReset, titleVisibility: .visible) {
+            Button("Reset and close the app", role: .destructive) { Task { await model.resetAllDataAndQuit() } }
+        }
+        #endif
         .sheet(item: $probe) { p in
             NavigationStack {
-                ProbeWebView(probe: p, log: log)
+                ProbeWebView(probe: p, log: log, record: { id, status, note in
+                    results.set(id, status, note: note, source: .check)
+                    results.save(model.store)
+                })
                     .navigationTitle(p.url)
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { Button("Done") { probe = nil } }
             }
         }
-        .onAppear(perform: refresh)
+        .onAppear {
+            refresh()
+            results = SpikeResults.load(model.store)
+        }
     }
 
     static let youtubeLogin = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fm.youtube.com%2F"
@@ -265,10 +297,12 @@ struct Probe: Identifiable {
 struct ProbeWebView: UIViewRepresentable {
     let probe: Probe
     let log: (String) -> Void
+    /// A scripted check's verdict for the Spike results section.
+    var record: (String, SpikeStatus, String) -> Void = { _, _, _ in }
 
     static func platformStoreID(_ p: Platform) -> UUID { LiteWebController.dataStoreID(p) }
 
-    func makeCoordinator() -> Coordinator { Coordinator(log: log, label: probe.url, check: probe.check) }
+    func makeCoordinator() -> Coordinator { Coordinator(log: log, label: probe.url, check: probe.check, record: record) }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -296,13 +330,15 @@ struct ProbeWebView: UIViewRepresentable {
         let log: (String) -> Void
         let label: String
         let check: Probe.Check?
+        let record: (String, SpikeStatus, String) -> Void
         var started = Date()
         private var checkStarted = false
 
-        init(log: @escaping (String) -> Void, label: String, check: Probe.Check?) {
+        init(log: @escaping (String) -> Void, label: String, check: Probe.Check?, record: @escaping (String, SpikeStatus, String) -> Void) {
             self.log = log
             self.label = label
             self.check = check
+            self.record = record
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -351,6 +387,9 @@ struct ProbeWebView: UIViewRepresentable {
             func verdict(_ u: URL?) -> String { Self.hasVariant(u) ? "KEPT" : "DROPPED" }
             let mobile = loaded?.host == "www.instagram.com" && ua.contains("Mobile")
             log("S9 ?variant=following: load \(verdict(loaded)) (\(Self.describe(loaded))); home \(tap) → \(verdict(afterTap)) (\(Self.describe(afterTap))); back → \(verdict(afterBack)) (\(Self.describe(afterBack))); mobile web: \(mobile ? "yes" : "no")")
+            let status: SpikeStatus = tap != "tapped" ? .unknown
+                : (Self.hasVariant(loaded) && Self.hasVariant(afterTap) && mobile ? .pass : .fail)
+            record("S9", status, "load \(verdict(loaded)), home \(verdict(afterTap)), back \(verdict(afterBack))")
         }
 
         /// S10: does /accounts/close_friends/ open, and does it show checked rows? Counts only.
@@ -371,6 +410,7 @@ struct ProbeWebView: UIViewRepresentable {
             let boxes = counts["boxes"] ?? 0, checked = counts["checked"] ?? 0
             let verdict = !stayed ? "NOT AVAILABLE (redirected)" : boxes == 0 ? "OPENS, NO CHECKBOXES" : checked == 0 ? "OPENS, NOTHING CHECKED" : "WORKS"
             log("S10 close friends: \(verdict) · now at \(Self.describe(webView.url)) · profile links \(counts["links"] ?? 0), checkboxes \(boxes), checked \(checked)")
+            record("S10", !stayed ? .fail : (boxes > 0 && checked > 0 ? .pass : .unknown), verdict)
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -385,6 +425,143 @@ struct ProbeWebView: UIViewRepresentable {
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             log("probe content process terminated \(label)")
+        }
+    }
+}
+
+// MARK: Spike results (plain words)
+
+enum SpikeStatus: String, Codable { case pass, fail, unknown }
+
+struct SpikeInfo: Identifiable {
+    let id: String
+    let title: String
+    /// One sentence: what it tests.
+    let tests: String
+    let ifPass: String
+    let ifFail: String
+}
+
+enum SpikeCatalog {
+    static let all: [SpikeInfo] = [
+        .init(id: "S1", title: "Shield bleed",
+              tests: "Does shielding the Instagram/YouTube apps also block our own web views?",
+              ifPass: "Lite views keep working while the native apps are shielded.",
+              ifFail: "Shields block our web views too; we need the named-store workaround."),
+        .init(id: "S2", title: "YouTube sign-in",
+              tests: "Can you sign in to YouTube inside breakZero?",
+              ifPass: "Signed-in YouTube works (Google may still warn).",
+              ifFail: "Use YouTube signed out, with the RSS subscriptions list."),
+        .init(id: "S3", title: "Instagram DMs",
+              tests: "Do messages, photos and new chats work in the Instagram tab?",
+              ifPass: "DMs are safe to rely on.",
+              ifFail: "Something in DMs breaks; report what."),
+        .init(id: "S4", title: "Notifications",
+              tests: "Do message notifications still arrive with Instagram shielded?",
+              ifPass: "You won't miss messages.",
+              ifFail: "Shielding silences notifications; open breakZero to check."),
+        .init(id: "S5", title: "Wall holds",
+              tests: "Can the wall be removed in Settings without the Screen Time passcode?",
+              ifPass: "The wall holds on this iOS version.",
+              ifFail: "There's a way around it on this iOS version; see the security notes."),
+        .init(id: "S6", title: "Speed",
+              tests: "How fast does a lite view open, and how much memory does it use?",
+              ifPass: "Fast enough (under 2 s to a usable inbox).",
+              ifFail: "Too slow; we need to tune loading."),
+        .init(id: "S7", title: "Pass timing",
+              tests: "Does a native pass end on time even if breakZero is closed?",
+              ifPass: "Passes can't be stretched.",
+              ifFail: "Passes run long; we need another timer."),
+        .init(id: "S8", title: "Snapchat web chat",
+              tests: "Does web.snapchat.com chat work inside breakZero?",
+              ifPass: "A Snapchat lite tab is possible.",
+              ifFail: "Spotlight can only be blocked by shielding the app (paid build)."),
+        .init(id: "S9", title: "Following feed sticks",
+              tests: "Does ?variant=following stay after tapping the Instagram logo and going back?",
+              ifPass: "The Following feed stays put; the forced redirect rarely has to act.",
+              ifFail: "Instagram drops it; breakZero redirects (at most 3 times in 30 s), and feed rules still apply."),
+        .init(id: "S10", title: "Close Friends page",
+              tests: "Does instagram.com/accounts/close_friends/ open and show who's checked?",
+              ifPass: "Import Close Friends works.",
+              ifFail: "Close Friends can only come from the data export."),
+    ]
+}
+
+struct SpikeResult: Codable, Equatable {
+    enum Source: String, Codable { case owner, check }
+    var status: SpikeStatus
+    var note: String
+    var date: Date
+    var source: Source
+}
+
+struct SpikeResults: Codable, Equatable {
+    static let file = "spike-results.json"
+    var results: [String: SpikeResult] = [:]
+
+    /// Reported by the owner from the iPhone, 2026-10-01.
+    static let reported: [String: SpikeResult] = [
+        "S9": .init(status: .pass, note: "Tapping the Instagram logo keeps the Following feed (owner, on iPhone)",
+                    date: Date(timeIntervalSince1970: 1_790_870_400), source: .owner),
+        "S10": .init(status: .pass, note: "The Close Friends page opens (owner, on iPhone)",
+                     date: Date(timeIntervalSince1970: 1_790_870_400), source: .owner),
+    ]
+
+    func result(_ id: String) -> SpikeResult? { results[id] ?? Self.reported[id] }
+
+    mutating func set(_ id: String, _ status: SpikeStatus, note: String, source: SpikeResult.Source) {
+        results[id] = .init(status: status, note: note, date: Date(), source: source)
+    }
+
+    static func load(_ store: SharedStore) -> SpikeResults {
+        (try? store.read(SpikeResults.self, file)) ?? SpikeResults()
+    }
+
+    func save(_ store: SharedStore) { try? store.write(self, Self.file) }
+}
+
+struct SpikeRow: View {
+    let spike: SpikeInfo
+    let result: SpikeResult?
+    let set: (SpikeStatus) -> Void
+
+    private var status: SpikeStatus { result?.status ?? .unknown }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("\(spike.id) · \(spike.title)").font(.subheadline.weight(.semibold))
+                Spacer()
+                Menu {
+                    Button("PASS") { set(.pass) }
+                    Button("FAIL") { set(.fail) }
+                    Button("UNKNOWN") { set(.unknown) }
+                } label: {
+                    Text(status.rawValue.uppercased())
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 8).padding(.vertical, 2)
+                        .background(Capsule().fill(color.opacity(0.18)))
+                        .foregroundStyle(color)
+                }
+                .accessibilityLabel(Text("\(spike.id) result: \(status.rawValue). Change"))
+            }
+            Text(spike.tests).font(.footnote)
+            switch status {
+            case .pass: Text(spike.ifPass).font(.footnote).foregroundStyle(.secondary)
+            case .fail: Text(spike.ifFail).font(.footnote).foregroundStyle(.secondary)
+            case .unknown: Text("Not tested yet.").font(.footnote).foregroundStyle(.secondary)
+            }
+            if let r = result, r.status != .unknown {
+                Text("\(r.note) · \(r.date.formatted(date: .abbreviated, time: .omitted))").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var color: Color {
+        switch status {
+        case .pass: .green
+        case .fail: .red
+        case .unknown: .secondary
         }
     }
 }
