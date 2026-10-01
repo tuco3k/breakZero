@@ -126,6 +126,27 @@ final class UsageMeterTests: XCTestCase {
         XCTAssertEqual(usage.platformSeconds[.instagram] ?? 0, 0, "trusted time catches up by running")
     }
 
+    /// Kill the app mid-session and reopen it: usage survives (minus at most the unsaved seconds),
+    /// the time the app was dead isn't counted, and the clock moved while it was dead changes nothing.
+    func testKillAndReopenKeepsUsageAndIgnoresDowntime() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bz-usage-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = SharedStore(directory: dir)
+        use(300, ig)
+        try store.write(usage, UsageState.file)       // the app saves every few seconds
+        use(3, ig)                                     // …and is killed before the next save
+        // Dead for 20 minutes; meanwhile someone sets the clock a day ahead.
+        clock.advance(1200)
+        clock.jumpWall(86400)
+        var reopened = try XCTUnwrap(store.read(UsageState.self, UsageState.file))
+        reopened.tick(clock.sample, activity: nil, timeZone: denver)   // launch check-in
+        XCTAssertEqual(reopened.platformSeconds[.instagram], 300, "saved usage kept; downtime not counted; no reset")
+        XCTAssertEqual(local(reopened.dayEndsAt), "2026-10-02 00:00")
+        clock.advance(1)
+        reopened.tick(clock.sample, activity: ig, timeZone: denver)
+        XCTAssertEqual(reopened.platformSeconds[.instagram], 301)
+    }
+
     func testStateRoundTripsAndOldFilesLoad() throws {
         use(30, reel)
         let data = try JSONEncoder().encode(usage)

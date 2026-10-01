@@ -53,6 +53,23 @@ callback):
   whichever is first, so setting the clock back can't stretch it. The daily cap counts passes
   "started today" plus any whose start is in the future.
 
+## Time limits, short-form budget and schedules
+- Usage counts only while a lite tab is on screen in the foreground, in trusted time (same rule as
+  cooldowns), at most 30 s per tick, saved every 5 s. Killing the app loses at most ~5 s of counted
+  use; time while killed or in the background is never counted.
+- The day resets at local midnight of a trusted clock estimate, in the time zone pinned when the day
+  started, and a day is at least 20 h. Clock and time-zone changes can't reset or extend anything
+  early. Residual: a reset comes **late** after a long power-off (the reboot gap is credited at most
+  1 h) or after flying east.
+- Raising a limit, adding budget minutes, turning the budget on and removing a schedule wait for the
+  cooldown; extra time only through a pass (purpose, wait, daily cap, logged).
+- The watchdog runs in the page and natively, each every second. The page part is in the page's own
+  JavaScript world (needed to hook navigation), so the site could in principle call `__bzUpdate`
+  and loosen the page's copy of the rules; the native watchdog doesn't trust the page and enforces
+  independently.
+- **Free (lite) build:** deleting the app deletes the usage, the limits and the wall itself. Only the
+  Screen Time build can block deleting breakZero (`denyAppRemoval`).
+
 ## Defense in depth
 - Pending changes apply from the DeviceActivityMonitor extension at their due time, so they land
   without the app; every launch reconciles too.

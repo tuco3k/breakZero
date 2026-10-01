@@ -32,3 +32,48 @@ Run before every release. Record device, iOS version, date, pass/fail per line.
 ## Release
 - [ ] App size < 25 MB; network capture shows only allowed hosts
 - [ ] App Store privacy answers: Data Not Collected
+
+## Limits, budgets and schedules: try to break them (on device)
+
+Set short values first (Wall › Limits): Instagram 15 min a day, Reels/Shorts budget 5 min, and
+schedules "Block Reels, Shorts and Spotlight" starting a minute from now and "All of Instagram"
+starting two minutes from now. Turn the Lock on. For **every** line below, the expected result is a
+hard stop: the forbidden page never stays on screen for more than about a second, media stops, a
+short reason shows in the strip at the top, and Diagnostics › Log has a `watchdog` line.
+
+Short-form budget (use it up first by watching Reels/Shorts for 5 minutes):
+- [ ] Mid-reel when the budget hits zero: the reel stops and you're moved to the inbox
+- [ ] Mid-Short on YouTube when it hits zero: the Short stops and opens as a normal watch page
+- [ ] Reels tab / profile Reels tab / Explore link / a reel link in search results
+- [ ] Swipe up to the next reel from a reel; swipe back with the edge gesture
+- [ ] Browser back and forward buttons into a reel you watched earlier today
+- [ ] Paste a `/reels/` or `/shorts/` URL (e.g. into a DM, then tap it)
+- [ ] Deep link: open an instagram.com/reel/… link from Notes or Messages
+- [ ] A reel someone sent you in a DM still plays once (the default wall); the next one bounces back
+- [ ] Kill the app and reopen it on a reel: blocked within a second
+- [ ] Background the app for 10 minutes: the budget doesn't go down while away
+- [ ] Next day after midnight: Reels/Shorts work again for 5 minutes
+
+Daily limit (Instagram 15 min):
+- [ ] At 15 minutes the tab shows "That's Instagram for today" and audio stops
+- [ ] Deep link into instagram.com while blocked: still the done screen
+- [ ] Kill and reopen: still the done screen
+- [ ] "Request a pass": purpose, wait, then the pass works for its minutes and the done screen
+      comes back when it ends (also with the app killed during the pass)
+- [ ] Passes stop at the daily cap
+
+Schedules:
+- [ ] At the start minute, an open reel is stopped (short-form schedule)
+- [ ] At the start minute, all of Instagram shows "off right now" with the end time (platform schedule)
+- [ ] Removing a schedule goes to "Waiting to apply"; adding one applies at once
+
+Clock and time zone (all must change nothing):
+- [ ] Settings › General › Date & Time: turn off *Set Automatically*, move the clock forward a day:
+      limits don't reset, schedules don't end
+- [ ] Move the clock back a few hours: no extra time, schedules don't restart early
+- [ ] Change the time zone to one where it's already tomorrow: no early reset
+- [ ] Reboot the phone: nothing resets early (a reset after a long power-off may come late; that's expected)
+
+Ratchet:
+- [ ] Lowering a limit or adding a schedule: instant
+- [ ] Raising a limit, adding budget minutes, removing a schedule, turning the budget on: waits for the cooldown

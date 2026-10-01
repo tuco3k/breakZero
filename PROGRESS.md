@@ -10,8 +10,8 @@ Phase 1 in progress: recipes, rule engine, all five filter layers and their test
 the WebKit glue compiles but hasn't run on a device.
 
 Test status (Linux, Swift 6.0.3 + Node 22):
-- `cd Packages/BreakZeroKit && swift test` → **62 tests pass** (Core, LiteWeb pure parts, Shielding with fakes).
-- `cd jstests && npm ci && npm test` → **27 tests pass** (route vectors shared with Swift, DOM filters, guard, canaries, autoplay).
+- `cd Packages/BreakZeroKit && swift test` → **111 tests pass** (Core incl. limits with a fake clock, LiteWeb pure parts, Shielding with fakes).
+- `cd jstests && npm ci && npm test` → **62 tests pass** (shared route vectors for guard and watchdog, DOM filters, canaries, autoplay, media diagnostics).
 
 Test status (macOS, Xcode 27, iPhone 17 Pro Simulator iOS 26.2), `xcodebuild … CODE_SIGNING_ALLOWED=NO build test`:
 - **63 tests pass**: CoreTests 50, LiteWebTests 7, ShieldingTests 5, breakZeroTests 1.
@@ -109,23 +109,49 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   blocked by shielding the native app in the paid build. Roadmap: Snapchat moved to v1.1, ahead of
   Reddit/X/Facebook (BRIEF.md §4.1, §12).
 
-## Next
-1. Owner: `docs/ON_DEVICE_CHECKLIST.md` steps 1–14; report spike results.
-2. Phase 1 remaining items above (downloads, interactionState restore, unread counts).
-3. Phase 2: onboarding (authorization → per-platform app picker → notification permission), pass request UI with wait screen.
-4. After S1–S7 results: revise ARCHITECTURE.md §7 decisions.
+- [x] 7. Reliability: fake-clock tests for limits (midnight rollover, clock forward/back, time
+  zone, app closed overnight, reboot, background, kill-and-reopen, budget running out mid-video);
+  Node watchdog tests on the shared route vectors (Swift `RuleEngine.check` runs the same vectors);
+  `docs/QA.md` › *Limits, budgets and schedules: try to break them*; SECURITY_MODEL.md residual risks.
+
+## Next — what the owner should test on the phone (lite build is enough)
+Build first: `xcodegen generate`, then build on the Mac. New Swift files since the Mac build are
+UNVERIFIED (list below); expect a round of compile fixes.
+1. **Layout** (item 1): our tab bar is hidden; the button at the top right of the strip shows/hides
+   it; nothing of ours covers Instagram's bottom navigation or YouTube's controls, with the tab bar
+   shown or hidden.
+2. **Accounts** (item 1): Wall › Accounts shows Instagram/YouTube signed in or out; *Sign out* on
+   one platform signs out only that one (the other stays signed in).
+3. **YouTube** (item 2): signed out, the tab opens on Search (check the page offers a search box);
+   signed in, on Subscriptions. Library, playlists, Watch later, history and channel pages open. Play
+   a few videos; if one won't play, send Diagnostics › Log (look for `video error code …`). Try the
+   sign-in once without the VPN and say whether the "browser didn't seem trustworthy" warning stays.
+4. **No-sign-in Subscriptions** (item 2): from Google Takeout get `subscriptions.csv` (YouTube →
+   subscriptions), tap the list button in the YouTube strip, Import, then open a video from the list.
+5. **Wall explainer** (item 3): appears the first time you open the Wall tab; "What is the wall?" brings
+   it back; the free-build section is correct.
+6. **Limits** (item 4) and **watchdog** (item 5): run the new *Limits, budgets and schedules* section
+   of `docs/QA.md` end to end. Every path must hard-stop within about a second.
+7. **Snapchat spike S8** (item 6): `docs/ON_DEVICE_CHECKLIST.md` step 18.
+8. Answer QUESTIONS.md **#27** (may YouTube tap-to-play be relaxed if it's what blocks playback?).
+Still open from before: checklist steps 1–17 (spikes S1, S3–S7 need the paid Screen Time build).
 
 ## Unverified
-Every Swift file now compiles on macOS (items 1–14 of the old list; the extensions in the full variant
-only). Still never **run** on a device:
-- `LiteWebController.swift`, `LiteWebView.swift` (whole WebKit glue: rule lists, scripts, downloads,
-  restore, badges) — owner checklist §D, works with the free-team lite build;
-- `ScreenTime.swift`, `RevocationView`, Diagnostics S1/S5/S7, the three extensions — need a paid team
-  with Family Controls (full build);
-- `AppModel`, `RootView`, `WallView`, `BreakZeroApp`: ran only as far as the 1 app unit test.
-
-Compiled and tested on Linux and macOS: `Core/*`, `LiteWeb/LiteWeb.swift`, `Shielding/Shielding.swift`,
-`bz-filter.js`.
+Never compiled (written on Linux after the Mac build of 2026-10-01). Build these first:
+- `App/Sources/RootView.swift` (header strip, hidden tab bar, done-for-today, remaining minutes)
+- `App/Sources/AppModel.swift` (sessions, sign-out, usage meter, limits, watchdog wiring, RSS)
+- `App/Sources/Wall/WallView.swift` (Accounts, Limits, Platforms, explainer)
+- `App/Sources/Wall/WallExplainerView.swift`
+- `App/Sources/Limits/DoneForTodayView.swift`, `App/Sources/Limits/LimitsSection.swift`
+- `App/Sources/YouTube/YouTubeSubscriptionsView.swift`
+- `App/Sources/Diagnostics/DiagnosticsView.swift` (S8 section, desktop UA probe)
+- `App/Sources/BreakZeroApp.swift` (foreground → meter/watchdog)
+- `Packages/BreakZeroKit/Sources/LiteWeb/LiteWebController.swift` (watchdog, limits push, cookies,
+  media pause, recipe UA/landing host), `LiteSession.swift` (new)
+Compiled on macOS 2026-10-01 but never run on a device: the rest of the WebKit glue, `ScreenTime.swift`,
+the three extensions.
+Compiled and tested on Linux (CI: swift 6.0 + latest) and in Node: everything in `Core`, the pure parts
+of `LiteWeb` and `Shielding`, and `bz-filter.js`.
 
 ## Blockers / blocked commands (log)
 - `download.swift.org` is denied by the session's egress policy (403). Swift was installed instead from
