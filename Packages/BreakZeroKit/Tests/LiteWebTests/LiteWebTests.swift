@@ -45,6 +45,11 @@ final class LiteScriptBuilderTests: XCTestCase {
         XCTAssertFalse(s.contains("%3Cscript"))
     }
 
+    func testStableHash() {
+        XCTAssertEqual(LiteScriptBuilder.stableHash(""), "cbf29ce484222325")
+        XCTAssertEqual(LiteScriptBuilder.stableHash("a"), "af63dc4c8601ec8c")
+    }
+
     func testMessageParsingValidates() {
         XCTAssertEqual(LiteMessage.parse(["type": "route", "href": "https://www.instagram.com/x/", "state": ["grant": NSNull()]]),
                        .route(href: "https://www.instagram.com/x/", state: NavigationState(grant: nil)))

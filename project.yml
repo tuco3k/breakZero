@@ -1,0 +1,198 @@
+# XcodeGen spec. Generate with `xcodegen generate`; never hand-edit the .pbxproj (git-ignored).
+# UNVERIFIED: written on Linux; first `xcodegen generate` + build happens on the owner's Mac.
+#
+# Before building on a device, set your team and (if needed) identifiers in one place:
+#   DEVELOPMENT_TEAM, BZ_BUNDLE_ID, BZ_APP_GROUP below — and AppGroup.appGroupID in
+#   Packages/BreakZeroKit/Sources/Core/SharedStore.swift must match BZ_APP_GROUP.
+name: breakZero
+
+options:
+  bundleIdPrefix: com.tuco3k
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    BZ_BUNDLE_ID: com.tuco3k.breakzero
+    BZ_APP_GROUP: group.com.tuco3k.breakzero
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+
+packages:
+  BreakZeroKit:
+    path: Packages/BreakZeroKit
+
+targets:
+  breakZero:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - "**/*.md"
+    dependencies:
+      - package: BreakZeroKit
+        product: Core
+      - package: BreakZeroKit
+        product: LiteWeb
+      - package: BreakZeroKit
+        product: Shielding
+      - target: ShieldConfiguration
+      - target: ShieldAction
+      - target: DeviceActivityMonitor
+      - sdk: FamilyControls.framework
+      - sdk: ManagedSettings.framework
+      - sdk: DeviceActivity.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BZ_BUNDLE_ID)
+        PRODUCT_NAME: breakZero
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: breakZero
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        BZAppGroup: $(BZ_APP_GROUP)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: "Lets you take a photo or video to post or send from a lite view. Nothing is uploaded except what you choose to send to that site."
+        NSPhotoLibraryUsageDescription: "Lets you pick photos or videos to post or send from a lite view."
+        NSPhotoLibraryAddUsageDescription: "Lets you save photos or videos you download in a lite view."
+        NSMicrophoneUsageDescription: "Lets you record a video with sound to post or send from a lite view."
+        CFBundleURLTypes:
+          - CFBundleURLName: $(BZ_BUNDLE_ID)
+            CFBundleURLSchemes: [breakzero]
+    entitlements:
+      path: App/breakZero.entitlements
+      properties:
+        # Development entitlement works for on-device testing without Apple approval.
+        # Distribution needs approval: docs/ON_DEVICE_CHECKLIST.md step 1.
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups: [$(BZ_APP_GROUP)]
+
+  breakZeroTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [AppTests]
+    dependencies:
+      - target: breakZero
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BZ_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  ShieldConfiguration:
+    type: app-extension
+    platform: iOS
+    sources: [Extensions/ShieldConfiguration]
+    dependencies:
+      - package: BreakZeroKit
+        product: Core
+      - sdk: ManagedSettings.framework
+      - sdk: ManagedSettingsUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BZ_BUNDLE_ID).ShieldConfiguration
+    info:
+      path: Extensions/ShieldConfiguration/Info.plist
+      properties:
+        CFBundleDisplayName: breakZero Shield
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        BZAppGroup: $(BZ_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ManagedSettingsUI.shield-configuration-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldConfigurationExtension
+    entitlements:
+      path: Extensions/ShieldConfiguration/ShieldConfiguration.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups: [$(BZ_APP_GROUP)]
+
+  ShieldAction:
+    type: app-extension
+    platform: iOS
+    sources: [Extensions/ShieldAction]
+    dependencies:
+      - package: BreakZeroKit
+        product: Core
+      - package: BreakZeroKit
+        product: Shielding
+      - sdk: ManagedSettings.framework
+      - sdk: UserNotifications.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BZ_BUNDLE_ID).ShieldAction
+    info:
+      path: Extensions/ShieldAction/Info.plist
+      properties:
+        CFBundleDisplayName: breakZero Shield Action
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        BZAppGroup: $(BZ_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ManagedSettings.shield-action-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldActionExtension
+    entitlements:
+      path: Extensions/ShieldAction/ShieldAction.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups: [$(BZ_APP_GROUP)]
+
+  DeviceActivityMonitor:
+    type: app-extension
+    platform: iOS
+    sources: [Extensions/DeviceActivityMonitor]
+    dependencies:
+      - package: BreakZeroKit
+        product: Core
+      - package: BreakZeroKit
+        product: Shielding
+      - sdk: DeviceActivity.framework
+      - sdk: ManagedSettings.framework
+      - sdk: FamilyControls.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BZ_BUNDLE_ID).DeviceActivityMonitor
+    info:
+      path: Extensions/DeviceActivityMonitor/Info.plist
+      properties:
+        CFBundleDisplayName: breakZero Monitor
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        BZAppGroup: $(BZ_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.deviceactivity.monitor-extension
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).DeviceActivityMonitorExtension
+    entitlements:
+      path: Extensions/DeviceActivityMonitor/DeviceActivityMonitor.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups: [$(BZ_APP_GROUP)]
+
+schemes:
+  breakZero:
+    build:
+      targets:
+        breakZero: all
+    test:
+      targets:
+        - breakZeroTests
+        - package: BreakZeroKit/CoreTests
+        - package: BreakZeroKit/LiteWebTests
+        - package: BreakZeroKit/ShieldingTests
+    run:
+      config: Debug

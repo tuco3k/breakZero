@@ -56,6 +56,9 @@ public struct WallPolicy: Codable, Sendable, Equatable {
     public var hardLock: HardLock?
     /// Optional daily signed-recipe fetch. Privacy setting, not a restriction: neutral.
     public var recipeUpdatesEnabled: Bool
+    /// Which lite tab a shielded app's token maps to (token fingerprint → platform), set when the
+    /// user picks apps per platform in onboarding. Lets the shield's button open the right tab.
+    public var shieldPlatforms: [String: Platform]
 
     public init(
         enabledPlatforms: [Platform] = [.instagram, .youtube],
@@ -66,7 +69,8 @@ public struct WallPolicy: Codable, Sendable, Equatable {
         lockEnabled: Bool = false,
         denyAppRemoval: Bool = false,
         hardLock: HardLock? = nil,
-        recipeUpdatesEnabled: Bool = false
+        recipeUpdatesEnabled: Bool = false,
+        shieldPlatforms: [String: Platform] = [:]
     ) {
         self.enabledPlatforms = enabledPlatforms
         self.platformSettings = platformSettings
@@ -77,6 +81,25 @@ public struct WallPolicy: Codable, Sendable, Equatable {
         self.denyAppRemoval = denyAppRemoval
         self.hardLock = hardLock
         self.recipeUpdatesEnabled = recipeUpdatesEnabled
+        self.shieldPlatforms = shieldPlatforms
+    }
+
+    // Missing keys take defaults so a policy saved by an older build still loads. A policy that
+    // fails to decode would otherwise read as the (unlocked) default: never let that happen
+    // silently — callers treat a decode *error* as "keep the wall up" (see AppModel).
+    public init(from decoder: Decoder) throws {
+        let d = WallPolicy()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabledPlatforms = try c.decodeIfPresent([Platform].self, forKey: .enabledPlatforms) ?? d.enabledPlatforms
+        platformSettings = try c.decodeIfPresent([Platform: PlatformSettings].self, forKey: .platformSettings) ?? d.platformSettings
+        shields = try c.decodeIfPresent(ShieldSelection.self, forKey: .shields) ?? d.shields
+        pass = try c.decodeIfPresent(PassRules.self, forKey: .pass) ?? d.pass
+        cooldown = try c.decodeIfPresent(TimeInterval.self, forKey: .cooldown) ?? d.cooldown
+        lockEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockEnabled) ?? d.lockEnabled
+        denyAppRemoval = try c.decodeIfPresent(Bool.self, forKey: .denyAppRemoval) ?? d.denyAppRemoval
+        hardLock = try c.decodeIfPresent(HardLock.self, forKey: .hardLock)
+        recipeUpdatesEnabled = try c.decodeIfPresent(Bool.self, forKey: .recipeUpdatesEnabled) ?? d.recipeUpdatesEnabled
+        shieldPlatforms = try c.decodeIfPresent([String: Platform].self, forKey: .shieldPlatforms) ?? d.shieldPlatforms
     }
 
     public func settings(for platform: Platform) -> PlatformSettings {

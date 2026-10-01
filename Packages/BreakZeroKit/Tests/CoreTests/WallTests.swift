@@ -182,6 +182,25 @@ final class RatchetTests: XCTestCase {
         if case .rejectedInvalid = submit(.addCustomHide(.instagram, selector: "a{}")) {} else { XCTFail() }
     }
 
+    func testPolicyDecodesLenientlyButNotCorruptly() throws {
+        let empty = try JSONDecoder().decode(WallPolicy.self, from: Data("{}".utf8))
+        XCTAssertEqual(empty, WallPolicy())
+        let partial = try JSONDecoder().decode(WallPolicy.self, from: Data(#"{"lockEnabled":true,"cooldown":7200}"#.utf8))
+        XCTAssertTrue(partial.lockEnabled)
+        XCTAssertEqual(partial.cooldown, 7200)
+        XCTAssertThrowsError(try JSONDecoder().decode(WallPolicy.self, from: Data(#"{"lockEnabled":"yes"}"#.utf8)))
+    }
+
+    func testCorruptStoreFileFailsUpdateInsteadOfResetting() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bz-corrupt-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let s = SharedStore(directory: dir)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("{not json".utf8).write(to: dir.appendingPathComponent(AppGroup.File.policy))
+        XCTAssertThrowsError(try s.update(AppGroup.File.policy, default: WallPolicy()) { (p: inout WallPolicy) in p.lockEnabled = false })
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent(AppGroup.File.policy)), Data("{not json".utf8), "file untouched")
+    }
+
     func testStateRoundTripsThroughJSON() throws {
         _ = submit(.setPassCap(5))
         _ = submit(.setShields(.init(data: Data([9]), tokenIDs: ["x"])))
