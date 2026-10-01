@@ -38,3 +38,29 @@ public enum RecipeLibrary {
         return downloaded
     }
 }
+
+/// A cookie as the web view reports it: name and domain only. Values are never read.
+public struct CookieName: Sendable, Equatable {
+    public var name: String
+    public var domain: String
+
+    public init(name: String, domain: String) {
+        self.name = name
+        self.domain = domain
+    }
+}
+
+/// Signed in/out from cookie names (Accounts rows, signed-out landing).
+public enum SessionDetector {
+    public static func isSignedIn(_ recipe: Recipe, cookies: [CookieName]) -> Bool {
+        guard let session = recipe.session, !session.cookies.isEmpty else { return false }
+        let names = Set(session.cookies)
+        let hosts = (recipe.hosts + recipe.authHosts).map { $0.hasPrefix("*.") ? String($0.dropFirst(2)) : $0 }
+        return cookies.contains { c in
+            guard names.contains(c.name) else { return false }
+            let d = c.domain.hasPrefix(".") ? String(c.domain.dropFirst()) : c.domain
+            let domain = d.lowercased()
+            return domain.contains(".") && hosts.contains { $0 == domain || $0.hasSuffix("." + domain) }
+        }
+    }
+}

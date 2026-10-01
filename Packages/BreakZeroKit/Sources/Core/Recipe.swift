@@ -28,12 +28,15 @@ public struct Recipe: Codable, Sendable, Equatable {
     public var canaries: [Canary]
     /// Subresource URL blocks compiled into the WKContentRuleList (layer 1).
     public var resourceBlocks: [ResourceBlock]
+    /// How to tell "signed in" from cookies (names only; values are never read).
+    public var session: Session?
 
     public init(
         platform: String, version: Int, minEngine: Int, hosts: [String], authHosts: [String] = [],
         landing: Landing, toggles: [Toggle], scopes: [String: String] = [:], routes: [RouteRule],
         hide: [HideRule] = [], heuristics: [Heuristic] = [], behaviors: [Behavior] = [],
-        allowZones: [String] = [], canaries: [Canary] = [], resourceBlocks: [ResourceBlock] = []
+        allowZones: [String] = [], canaries: [Canary] = [], resourceBlocks: [ResourceBlock] = [],
+        session: Session? = nil
     ) {
         self.platform = platform
         self.version = version
@@ -50,6 +53,7 @@ public struct Recipe: Codable, Sendable, Equatable {
         self.allowZones = allowZones
         self.canaries = canaries
         self.resourceBlocks = resourceBlocks
+        self.session = session
     }
 
     // Optional arrays default to empty so recipe authors can omit them.
@@ -70,6 +74,14 @@ public struct Recipe: Codable, Sendable, Equatable {
         allowZones = try c.decodeIfPresent([String].self, forKey: .allowZones) ?? []
         canaries = try c.decodeIfPresent([Canary].self, forKey: .canaries) ?? []
         resourceBlocks = try c.decodeIfPresent([ResourceBlock].self, forKey: .resourceBlocks) ?? []
+        session = try c.decodeIfPresent(Session.self, forKey: .session)
+    }
+
+    public struct Session: Codable, Sendable, Equatable {
+        /// Any one of these cookie names, set for one of the recipe's hosts, means signed in.
+        public var cookies: [String]
+
+        public init(cookies: [String]) { self.cookies = cookies }
     }
 
     public struct Landing: Codable, Sendable, Equatable {

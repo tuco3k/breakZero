@@ -154,3 +154,21 @@ final class ContentRuleListTests: XCTestCase {
         XCTAssertTrue(full.contains(#""resource-type":["document"]"#))
     }
 }
+
+final class SessionDetectorTests: XCTestCase {
+    func testInstagramSession() throws {
+        let r = try RecipeLibrary.bundled(.instagram)
+        XCTAssertTrue(SessionDetector.isSignedIn(r, cookies: [.init(name: "sessionid", domain: ".instagram.com")]))
+        XCTAssertFalse(SessionDetector.isSignedIn(r, cookies: [.init(name: "csrftoken", domain: ".instagram.com")]))
+        XCTAssertFalse(SessionDetector.isSignedIn(r, cookies: [.init(name: "sessionid", domain: ".example.com")]))
+        XCTAssertFalse(SessionDetector.isSignedIn(r, cookies: [.init(name: "sessionid", domain: "com")]), "a bare TLD never matches")
+        XCTAssertFalse(SessionDetector.isSignedIn(r, cookies: []))
+    }
+
+    func testYouTubeSessionViaGoogleOrYouTubeCookie() throws {
+        let r = try RecipeLibrary.bundled(.youtube)
+        XCTAssertTrue(SessionDetector.isSignedIn(r, cookies: [.init(name: "LOGIN_INFO", domain: ".youtube.com")]))
+        XCTAssertTrue(SessionDetector.isSignedIn(r, cookies: [.init(name: "SID", domain: ".google.com")]), "accounts.google.com is an auth host")
+        XCTAssertFalse(SessionDetector.isSignedIn(r, cookies: [.init(name: "VISITOR_INFO1_LIVE", domain: ".youtube.com")]))
+    }
+}

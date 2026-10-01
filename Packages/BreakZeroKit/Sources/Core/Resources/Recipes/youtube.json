@@ -4,6 +4,7 @@
   "minEngine": 1,
   "hosts": ["youtube.com", "www.youtube.com", "m.youtube.com"],
   "authHosts": ["accounts.google.com", "accounts.youtube.com", "consent.youtube.com", "consent.google.com", "myaccount.google.com"],
+  "session": {"cookies": ["LOGIN_INFO", "SID", "__Secure-3PSID"]},
   "landing": {
     "default": "subscriptions",
     "options": {"subscriptions": "/feed/subscriptions", "library": "/feed/library"}

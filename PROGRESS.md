@@ -60,6 +60,13 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   The earlier build-setting version did leave `PlugIns` empty, but the free team rejected signing:
   its profile can't carry the App Group (`application-groups` came back empty). Hence the fallback.
 
+## Owner feedback round 1 (2026-10-01, iPhone, lite build, free team)
+- [x] 1. Tab bar hidden by default; show/hide button in a 32 pt header strip above each lite view
+  (the web view sits below it and no longer extends under the tab bar, which covered Instagram's
+  bottom navigation). Accounts section in the Wall tab: signed in/out per platform from cookie
+  names (`SessionDetector`, tested), sign-out clears only that platform's cookies (`LiteSession`,
+  UNVERIFIED). Files: `RootView.swift`, `WallView.swift`, `AppModel.swift`, `LiteSession.swift`.
+
 ## Next
 1. Owner: `docs/ON_DEVICE_CHECKLIST.md` steps 1–14; report spike results.
 2. Phase 1 remaining items above (downloads, interactionState restore, unread counts).

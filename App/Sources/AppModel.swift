@@ -30,6 +30,22 @@ final class AppModel {
     private(set) var controllers: [Platform: LiteWebController] = [:]
     /// Unread counts parsed from page titles (tab badges).
     private(set) var unread: [Platform: Int] = [:]
+    /// Our bottom tab bar is hidden by default so the sites get the full screen; the button in the
+    /// lite header strip toggles it. Remembered on this device.
+    var tabBarVisible: Bool = UserDefaults.standard.bool(forKey: AppModel.tabBarKey) {
+        didSet { UserDefaults.standard.set(tabBarVisible, forKey: AppModel.tabBarKey) }
+    }
+    static let tabBarKey = "bz.tabBarVisible"
+    /// Signed in/out per platform (nil = not checked yet). Cookie names only.
+    private(set) var sessions: [Platform: Bool] = [:]
+    /// Short message shown in the lite header strip (e.g. why the watchdog moved you).
+    private(set) var toast: Toast?
+
+    struct Toast: Equatable, Identifiable {
+        let id = UUID()
+        let platform: Platform?
+        let text: String
+    }
     let launchedAt: Date
 
     struct IdentifiedURL: Identifiable {
@@ -185,6 +201,34 @@ final class AppModel {
                                                     osVersion: UIDevice.current.systemVersion) else { return }
         // Opens in Safari (the user's choice to send). Not app traffic.
         UIApplication.shared.open(url)
+    }
+
+    // MARK: Accounts
+
+    func refreshSessions() async {
+        for p in policy.enabledPlatforms {
+            guard let recipe = recipes[p] else { continue }
+            sessions[p] = await LiteSession.isSignedIn(p, recipe: recipe)
+        }
+    }
+
+    /// Clears only this platform's cookies, then reloads its lite view at the landing page.
+    func signOut(_ p: Platform) async {
+        await LiteSession.signOut(p)
+        log("signed out of \(p.rawValue) (cookies cleared)")
+        controllers[p]?.loadLanding()
+        await refreshSessions()
+    }
+
+    // MARK: Toast
+
+    func showToast(_ text: String, platform: Platform? = nil) {
+        let t = Toast(platform: platform, text: text)
+        toast = t
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            if self?.toast?.id == t.id { self?.toast = nil }
+        }
     }
 
     // MARK: Deep links

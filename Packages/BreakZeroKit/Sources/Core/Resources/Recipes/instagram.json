@@ -4,6 +4,7 @@
   "minEngine": 1,
   "hosts": ["instagram.com", "www.instagram.com", "m.instagram.com"],
   "authHosts": ["accounts.instagram.com", "www.facebook.com", "m.facebook.com", "accountscenter.instagram.com"],
+  "session": {"cookies": ["sessionid"]},
   "landing": {
     "default": "inbox",
     "options": {"inbox": "/direct/inbox/", "following": "/?variant=following"}

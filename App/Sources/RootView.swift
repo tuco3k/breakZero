@@ -25,11 +25,15 @@ struct RootView: View {
         return TabView(selection: $model.selectedTab) {
             ForEach(model.policy.enabledPlatforms) { p in
                 LiteTab(platform: p)
+                    // Hidden by default so the site gets the whole screen (the header strip toggles it).
+                    .toolbar(model.tabBarVisible ? .visible : .hidden, for: .tabBar)
                     .tabItem { Label(p.displayName, systemImage: p.symbolName) }
                     .badge(model.unread[p] ?? 0)
                     .tag(AppTab.lite(p))
             }
             NavigationStack { WallView() }
+                // Always visible on the Wall tab, so there's always a way back to the lite tabs.
+                .toolbar(.visible, for: .tabBar)
                 .tabItem { Label(String(localized: "Wall"), systemImage: "shield.lefthalf.filled") }
                 .tag(AppTab.wall)
         }
@@ -38,20 +42,67 @@ struct RootView: View {
 
 /// One warm web view per platform. The controller lives in the model, so switching tabs
 /// doesn't tear the page down.
+///
+/// Layout rule: nothing of ours overlaps the site. The header strip sits *above* the web view in a
+/// VStack, and the web view stays inside the safe area, so it ends above our tab bar (when shown)
+/// and above the home indicator. Previously the web view ran under the tab bar and covered
+/// Instagram's bottom navigation.
 struct LiteTab: View {
     @Environment(AppModel.self) private var model
     let platform: Platform
 
     var body: some View {
-        if let c = model.controller(for: platform) {
-            LiteWebView(controller: c)
-                .ignoresSafeArea(.container, edges: .bottom)
-                .accessibilityLabel(Text("\(platform.displayName) lite view"))
-        } else {
-            ContentUnavailableView(String(localized: "Couldn't load filters"),
-                                   systemImage: "exclamationmark.triangle",
-                                   description: Text("The \(platform.displayName) recipe failed to load. Check Diagnostics."))
+        VStack(spacing: 0) {
+            LiteHeaderStrip(platform: platform)
+            if let c = model.controller(for: platform) {
+                LiteWebView(controller: c)
+                    .accessibilityLabel(Text("\(platform.displayName) lite view"))
+            } else {
+                ContentUnavailableView(String(localized: "Couldn't load filters"),
+                                       systemImage: "exclamationmark.triangle",
+                                       description: Text("The \(platform.displayName) recipe failed to load. Check Diagnostics."))
+            }
         }
+    }
+}
+
+/// Slim native strip above a lite view: a short status message on the left (toasts), and the
+/// button that shows/hides our tab bar on the right. Its own row, so it can't cover the site.
+struct LiteHeaderStrip: View {
+    @Environment(AppModel.self) private var model
+    let platform: Platform
+
+    var body: some View {
+        @Bindable var model = model
+        HStack(spacing: 8) {
+            if let toast = model.toast, toast.platform == nil || toast.platform == platform {
+                Label(toast.text, systemImage: "hand.raised")
+                    .font(.footnote.weight(.medium))
+                    .lineLimit(1)
+                    .transition(.opacity)
+                    .accessibilityAddTraits(.updatesFrequently)
+            } else {
+                Text(platform.displayName)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button {
+                withAnimation(.snappy) { model.tabBarVisible.toggle() }
+            } label: {
+                Image(systemName: model.tabBarVisible ? "chevron.down.circle" : "square.grid.2x2")
+                    .font(.system(size: 17, weight: .medium))
+                    .frame(width: 44, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(model.tabBarVisible ? Text("Hide tabs") : Text("Show tabs"))
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 4)
+        .frame(height: 32)
+        .background(.bar)
+        .animation(.default, value: model.toast)
     }
 }
 

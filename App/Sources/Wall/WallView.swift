@@ -7,12 +7,14 @@ import SwiftUI
 struct WallView: View {
     @Environment(AppModel.self) private var model
     @State private var resultText: String?
+    @State private var confirmSignOut: Platform?
 
     var body: some View {
         @Bindable var model = model
         List {
             lockSection
             if !model.lock.pending.isEmpty { pendingSection }
+            accountsSection
             ForEach(model.policy.enabledPlatforms) { p in platformSection(p) }
             passSection
             Section {
@@ -31,6 +33,19 @@ struct WallView: View {
             }
         }
         .navigationTitle(String(localized: "Wall"))
+        .task { await model.refreshSessions() }
+        .confirmationDialog(
+            confirmSignOut.map { String(localized: "Sign out of \($0.displayName)?") } ?? "",
+            isPresented: Binding(get: { confirmSignOut != nil }, set: { if !$0 { confirmSignOut = nil } }),
+            titleVisibility: .visible,
+            presenting: confirmSignOut
+        ) { p in
+            Button(String(localized: "Sign out"), role: .destructive) {
+                Task { await model.signOut(p) }
+            }
+        } message: { p in
+            Text("This deletes \(p.displayName)'s cookies in breakZero only. Your other accounts stay signed in.")
+        }
         .navigationDestination(isPresented: $model.showDiagnostics) { DiagnosticsView() }
         .alert(resultText ?? "", isPresented: Binding(get: { resultText != nil }, set: { if !$0 { resultText = nil } })) {
             Button("OK", role: .cancel) {}
@@ -54,6 +69,34 @@ struct WallView: View {
             Text("The wall")
         } footer: {
             Text("Tightening applies now. Loosening — turning a rule off, longer or more passes, a shorter cooldown, unlocking — applies only after the cooldown. You can cancel a pending change any time.")
+        }
+    }
+
+    /// One row per platform: signed in or out (from cookie names), and a sign-out that clears
+    /// only that platform's cookies.
+    private var accountsSection: some View {
+        Section {
+            ForEach(model.policy.enabledPlatforms) { p in
+                HStack {
+                    Label(p.displayName, systemImage: p.symbolName)
+                    Spacer()
+                    switch model.sessions[p] {
+                    case .some(true):
+                        Text("Signed in").foregroundStyle(.secondary)
+                        Button(String(localized: "Sign out")) { confirmSignOut = p }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(Text("Sign out of \(p.displayName)"))
+                    case .some(false):
+                        Text("Signed out").foregroundStyle(.secondary)
+                    case .none:
+                        ProgressView().accessibilityLabel(Text("Checking"))
+                    }
+                }
+            }
+        } header: {
+            Text("Accounts")
+        } footer: {
+            Text("Sign in inside each tab. Signing out deletes only that site's cookies in breakZero.")
         }
     }
 
