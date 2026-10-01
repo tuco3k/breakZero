@@ -79,41 +79,62 @@ Ratchet:
 - [ ] Lowering a limit or adding a schedule: instant
 - [ ] Raising a limit, adding budget minutes, removing a schedule, turning the budget on: waits for the cooldown
 
-## Old Instagram (friends only): try to break it (on device)
+## Feed rules (mutuals only): try to break it (on device)
 
-Setup: Wall › Instagram › Old Instagram › *Find friends in Followers and Following*. In the Instagram
-tab open your profile › Followers, scroll to the end; then Following. Back in Old Instagram: the
-counts appear, suggestions are people in both lists. Add 3–5 friends (the first applies at once; with
-the Lock on, the rest wait the cooldown). Also add one account you follow that posts a lot.
+**Import a real export** (recommended setup)
+- [ ] Wall › Instagram › Feed rules › *Import Instagram data*: follow the in-app steps (JSON, only
+      "Followers and following"). Import the .zip from Files. The summary reads like
+      "412 mutuals, 1,830 following, 960 followers" and appears within a few seconds
+- [ ] Import the same export as HTML: a plain message says to request JSON
+- [ ] Import only `followers_1.json`: it says the following list is missing; nothing changes
+- [ ] "Mutuals last updated today"; the pill says "Mutuals only · N hidden"
 
-Feed (`/?variant=following` and the plain `/`):
-- [ ] Only friends' posts show. No brands, creators, suggested posts, "Suggested for you" rows, ads
-- [ ] Scroll a long way (2–3 minutes): never a non-friend post, not even for a moment; "You're all
-      caught up" appears and nothing loads below it
-- [ ] Pull to refresh, then scroll again: same
-- [ ] Tap the Instagram logo / Home, and press Back: still the Following feed (or, if S9 said DROPPED,
-      still friends only)
-- [ ] Turn *Always open the Following feed* off (waits the cooldown if the Lock is on): the normal
-      feed is friends-only too
-- [ ] If a "Filter needs an update" banner shows on the feed, tap *Report*
+**Auto-scroll sync on a large account** (optional path)
+- [ ] Re-sync: read the warning, type your username, Start. Your Followers opens and scrolls by
+      itself slowly (a screen every 2–4 s, longer pauses), then Following
+- [ ] It stops by itself after 800 new names per list; *Continue* later carries on
+- [ ] Tap away to another page while it runs: it stops ("the list was closed")
+- [ ] If Instagram shows any warning, challenge or login: it stops at once and says so
+- [ ] After both lists finish: mutual counts match the export within a few people
 
-Stories:
-- [ ] The tray shows only friends' circles (and yours if you added yourself)
-- [ ] Open a friend's story and **tap through fast** to the end of everyone's stories: watch for a
-      flash of a non-friend's story. It must skip to the next friend or close, never show one frame
-- [ ] Let stories play by themselves to the end: same
-- [ ] Open a non-friend's profile and tap their story ring: it doesn't play (you land on the feed or
-      a friend's story); their profile and posts still open
-- [ ] A friend's highlight plays; a non-friend's highlight doesn't
-- [ ] Kill the app while on a friend's story, reopen: no non-friend story shows
+**Feed and stories by rule**
+- [ ] Feed: only mutuals' posts; no brands, creators, suggested posts or ads. Scroll 2–3 minutes:
+      never a non-mutual post, not even for a moment; then "You're all caught up"
+- [ ] Each shown post has a small *Hide* button: tap it, the post disappears, the toast says
+      "Hidden @name"; hide three quickly: one toast "Hidden 3 accounts"
+- [ ] Tap the pill: *Hidden recently* lists who was hidden; *Always show* waits the cooldown (Lock
+      on), *Never show* is instant
+- [ ] Feed shows / Stories show: try Everyone I follow, My list, Close Friends. Narrowing is
+      instant; widening waits the cooldown (Lock on)
+- [ ] Stories tray: only allowed people. Tap through fast to the end: never a flash of someone
+      else; it skips to the next allowed person or closes
+- [ ] A non-mutual's profile: it opens. Tap their story ring: it plays, only them; it never moves
+      on to someone else (back on their profile)
+- [ ] Turn *Play stories from profiles I open* off: tapping the ring keeps you on their profile with
+      a short message, no reload, never the feed
+- [ ] Never show someone who is mutual: their posts and stories are gone, their profile still opens
+- [ ] While a story plays, the strip offers "Hide @name"
 
-Must keep working (with Old Instagram on):
-- [ ] DMs: open a thread, send text and a photo, start a new chat, reply to a story from a DM
-- [ ] Search, and any profile you tap (friends and non-friends), their posts
-- [ ] Post a photo; notifications/activity page; settings; log out and log in again
+**Still works with feed rules on**: DMs (send, photo, new chat, reply to a story), search, any
+profile, posting, notifications, settings, log out and in.
 
-Friends list and the wall (Lock on):
-- [ ] Adding a friend waits the cooldown (shows in "Waiting to be added"); removing is instant
-- [ ] Removing your last friend waits the cooldown (it would switch the filter off)
-- [ ] Turning *Friends only* off waits the cooldown
-- [ ] *Import Close Friends* (if S10 said WORKS): your close friends appear as suggestions
+## Limit modes (on device)
+- [ ] Daily time: Per app / All apps together / Both. Set 7 minutes (type it): applies at once
+      (lowering); raising to 9 waits the cooldown (Lock on)
+- [ ] Reels/Shorts: Per app (Instagram 2 min, YouTube 5 min), One budget for all, Both. At 2:00
+      Reels stop within about a second while Shorts keep working; with Both, the first to run out wins
+
+## Accidental activation (on device)
+- [ ] Turn the Lock on: a sheet explains what gets locked and the cooldown; a single tap does
+      nothing, press and hold turns it on
+- [ ] The Wall tab shows "The Lock is on · You can undo it for 9:59" counting down; *Undo* turns it
+      off instantly
+- [ ] After 10 minutes the Undo is gone and turning the Lock off waits the cooldown
+- [ ] Move the clock forward or back during the 10 minutes: the Undo ends early, never later
+- [ ] Undo window setting: shortening is instant, lengthening waits
+- [ ] Block deleting breakZero and Hard Lock also need press and hold
+- [ ] Debug build: Diagnostics › *Reset all breakZero data* clears everything (you're signed out)
+      and closes the app. Not present in release builds (`scripts/check-release-no-debug-reset.sh`)
+
+## Toasts (on device)
+- [ ] Only ever one toast, at the top; it never blocks a tap and disappears after about 2 s

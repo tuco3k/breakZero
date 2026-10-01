@@ -15,8 +15,10 @@ Links that leave a platform open in Safari's in-app browser, which is Safari's t
 
 ## What stays on your phone
 Your wall settings, the pending-change queue, your native-pass log (with the purposes you typed),
-your Old Instagram Friends list and the usernames read from your own Followers/Following/Close
-Friends pages while you set it up, and a diagnostics log (counts only for those, never names). Nothing read from a page ever leaves the device. The *Report* button on a
+your feed rules and lists, who follows you and whom you follow (from your own Instagram data
+export, or read from your own lists on screen), the accounts hidden recently (memory only), and a
+diagnostics log (counts only for those, never names). Your data export is read on the phone and
+never uploaded. Nothing read from a page ever leaves the device. The *Report* button on a
 "Filter needs an update" banner opens a prefilled GitHub issue in Safari containing only the
 platform, recipe version, the failed check's id, and app/iOS versions — you choose whether to send it.
 

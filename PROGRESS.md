@@ -9,15 +9,17 @@ free Personal Team. Waiting on owner: install on the iPhone + spike results.
 Phase 1 in progress: recipes, rule engine, all five filter layers and their tests are written;
 the WebKit glue compiles but hasn't run on a device.
 
-Test status (macOS, 2026-10-01, after Old Instagram): `npm test` (Node 26) → **98 pass**; `swift test` on the
-macOS host → 121 pass (LiteWeb tests run in the Xcode scheme below).
+Test status (macOS, 2026-10-01, after feed rules rev. 2): `npm test` (Node 26) → **119 pass**; `swift test` on
+the macOS host → 174 pass (Core 154, LiteWeb 15, Shielding 5).
 
 Test status (Linux, Swift 6.0.3 + Node 22):
 - `cd Packages/BreakZeroKit && swift test` → **111 tests pass** (Core incl. limits with a fake clock, LiteWeb pure parts, Shielding with fakes).
 - `cd jstests && npm ci && npm test` → **62 tests pass** (shared route vectors for guard and watchdog, DOM filters, canaries, autoplay, media diagnostics).
 
 Test status (macOS, Xcode 27, iPhone 17 Pro Simulator iOS 26.2), `xcodebuild … CODE_SIGNING_ALLOWED=NO build test`:
-- **141 tests pass** (2026-10-01, after Old Instagram; build has no warnings): CoreTests 121, LiteWebTests 14, ShieldingTests 5, breakZeroTests 1.
+- **177 tests pass** (2026-10-01, feed rules rev. 2; build has no warnings): CoreTests 154, LiteWebTests 15, ShieldingTests 5, breakZeroTests 3.
+- `scripts/check-release-no-debug-reset.sh` → OK (debug reset in Debug, absent from Release).
+- (Old Instagram rev. 1: 141.)
 - (Round 1: 113 tests.): CoreTests 96, LiteWebTests 11, ShieldingTests 5, breakZeroTests 1.
 
 ## Phase 0 task plan
@@ -140,45 +142,52 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
 - [ ] Device markup unknown: post container (`main article`), tray links (`/stories/<user>/`), viewer
   header link. All recipe data; adjust after the first device report.
 
+## Feed rules rev. 2 (2026-10-01, ARCHITECTURE.md §4c–4e, QUESTIONS #46–57)
+- [x] Mutuals-only by default; show-only rules per surface (Everyone I follow / Mutuals / My list /
+  Close Friends); Never/Always lists with precedence; Old Instagram is a preset; suggestions and
+  ads always hidden. rev. 1 Friends list migrates to "My list" (no silent widening).
+- [x] People data: Instagram export import (zip or JSON, pure-Swift zip + inflate, HTML rejected,
+  17,000 accounts in about a second), auto-scroll sync (slow pace, 800/list/session cap, resume,
+  stops on challenge/login/dialog/stall/leaving), manual scrolling as fallback, 30-day freshness.
+- [x] Story gate as engine code: stories from a profile you open play one person only; profile
+  stories setting; never bounced to the feed from a profile; staying put doesn't reload.
+- [x] One-tap hide on posts and in the story strip; "Mutuals only · N hidden" pill with Hidden
+  recently (Always / Never show).
+- [x] Searchable collapsible lists with counts, multi-select bulk actions; app-wide coalesced toasts.
+- [x] Limit modes: per app / all together / both, for daily time and short-form budgets; any 1–240 min.
+- [x] Lock / Block deleting / Hard Lock confirm by press-and-hold; 10-minute undo countdown (clock
+  tricks end it early only); undo window setting (shorten only).
+- [x] Diagnostics: spike results PASS/FAIL/UNKNOWN with meanings (S9, S10 PASS from the owner);
+  Debug-only reset, proven absent from Release.
+- [x] Built (no warnings), 177 Xcode tests + 119 Node tests pass, installed and running on the iPhone.
+  Simulator: migration to My list, Feed rules screen, import sheet, Lock hold + Undo all checked;
+  app test imports a 3,000-account export end to end (800 mutuals, 0.14 s).
+- [ ] Owner: a real export, a real auto-scroll run, and Instagram's real markup (post container,
+  tray links, viewer header, hide button position) — see below.
+
 ## Next — what the owner should test on the phone (lite build is enough)
-Installed on the owner's iPhone 2026-10-01 with Old Instagram (free team; reinstall after 7 days).
-
-Old Instagram (sign in to Instagram first):
-1. **Spike S9** — Diagnostics › *Run S9*: paste the `S9 ?variant=following:` line.
-2. **Spike S10** — Diagnostics › *Run S10*: paste the `S10 close friends:` line.
-3. **Set up friends** — Wall › Instagram › *Old Instagram* › *Find friends in Followers and Following*;
-   in the Instagram tab open your Followers, scroll to the end, then Following; back in Old Instagram,
-   add a few suggestions (the first applies at once). Say whether the counts look right.
-4. **Feed** — only friends' posts; scroll 2–3 minutes: never a stranger's post, then "You're all
-   caught up" and nothing loads below. Logo/Home and Back keep the Following feed.
-5. **Stories** — tray shows only friends; tap through fast to the end: never a flash of a
-   non-friend's story (skips to the next friend or closes). A non-friend's story ring on their profile
-   doesn't play.
-6. **Still works** — DMs (send, photo, new chat), search, any profile, posting, notifications.
-   Full list: `docs/QA.md` › *Old Instagram*.
-
-From round 1:
-7. **Top-right bar button**: shows/hides our tab bar; nothing of ours covers Instagram's bottom
-   navigation or YouTube's controls (white bar fixed and confirmed, 8f9c8ff).
-8. **Accounts**: Wall › Accounts shows signed in/out per platform; *Sign out* signs out only that one.
-9. **YouTube playback, VPN on and off**: 3–4 videos each way start without an extra tap and never
-   advance by themselves; if one won't play, send Diagnostics › Log. Try a sign-in with the VPN off:
-   does the "browser didn't seem trustworthy" warning stay?
-10. **Wall explainer**: first visit, "What is the wall?", free-build section.
-11. **2-minute short-form budget**: Wall › Limits › Reels/Shorts = 2 min (instant while the Lock is
-   off); at 2:00 the reel stops within about a second and every way back in bounces
-   (`docs/QA.md` › *Limits, budgets and schedules*).
-12. **Snapchat spike S8**: Diagnostics › *S8*, desktop Safari UA first — does web.snapchat.com chat
-   work in our web view? (`docs/ON_DEVICE_CHECKLIST.md` step 18)
-13. Subscriptions without signing in (Takeout CSV → list button in the YouTube strip).
-Still open from before: checklist steps 1–17 (S1, S3–S7 need the paid Screen Time build).
+Installed 2026-10-01 (free team; reinstall after 7 days). Full steps: `docs/QA.md`.
+1. **Import your real export** (Feed rules › Import): note the summary line and how long it took.
+2. **Feed**: only mutuals; no ads or suggestions; "You're all caught up" after scrolling; the small
+   *Hide* button on posts sits somewhere sensible (tell me if it covers anything).
+3. **Stories**: tray only mutuals; fast tap-through never flashes anyone else; a non-mutual's ring
+   on their profile plays only them; with the setting off you stay on their profile.
+4. **Pill**: "Mutuals only · N hidden" → Hidden recently → Always / Never show.
+5. **Auto-scroll (optional)**: run Re-sync on your account; report how far it got and whether
+   Instagram showed anything.
+6. **Limits**: try a typed value (e.g. 7 min) and Per app vs Both for Reels/Shorts.
+7. **Lock**: hold to turn on, see the 10-minute Undo countdown, Undo.
+8. **Still works**: DMs, search, profiles, posting, notifications.
+From before: YouTube with VPN on/off, the 2-minute budget hard stop, Snapchat S8, checklist 1–17.
 
 ## Unverified
 Everything compiles on macOS (lite build, 2026-10-01; full build last checked at `0ec5866`). The lite
 app installs and launches on the owner's iPhone, but none of the new UI has been exercised on it yet:
 header strip / hidden tab bar, Accounts + `LiteSession` sign-out, Wall explainer, Limits and
-done-for-today, watchdog, YouTube RSS subscriptions, Diagnostics S8, and all of Old Instagram
-(Friends screen, scan, feed/tray/viewer filters on Instagram's real markup, S9/S10). Never run on a device:
+done-for-today, watchdog, YouTube RSS subscriptions, Diagnostics S8, and feed rules on Instagram's
+real markup (post container, tray links, viewer header, the hide button's position, auto-scroll's
+scroll container on the real Followers page). The export importer is tested against Python-made
+zips and synthetic exports, not yet a real Instagram export. Never run on a device:
 `ScreenTime.swift` and the three extensions (need the paid Screen Time build).
 Compiled and tested on Linux (CI: swift 6.0 + latest) and in Node: everything in `Core`, the pure parts
 of `LiteWeb` and `Shielding`, and `bz-filter.js`.

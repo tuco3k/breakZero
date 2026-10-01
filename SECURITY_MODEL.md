@@ -70,17 +70,29 @@ callback):
 - **Free (lite) build:** deleting the app deletes the usage, the limits and the wall itself. Only the
   Screen Time build can block deleting breakZero (`denyAppRemoval`).
 
-## Old Instagram (friends only)
-- Adding a friend is a loosening (cooldown); removing is instant. Removing the **last** friend is a
-  loosening too, because an empty list switches the filter off. Turning it off waits the cooldown.
-- The story gate is an ordinary route rule, so the navigation delegate, the page guard, the native
-  backstop and both watchdogs enforce it; a non-friend story URL never starts loading. The feed is
-  default-deny in CSS: if the script can't run, the feed is empty rather than unfiltered.
-- Residual: the feed filter itself runs only in the page (native can't see the DOM). A site change
-  that renders posts outside `article` shows them; the friends canary blurs them and asks for a
-  report. Story tray items without a link can't be checked (the gate still stops them playing).
-- The setup scan runs in the page world, so the site could post fake usernames while a scan is
-  armed. They only ever become suggestions you must add, and adding waits the cooldown.
+## Feed rules (mutuals only)
+- Widening what you see (a broader rule, Always show, removing from Never show, profile stories
+  on, rules off) waits the cooldown; narrowing is instant. Refreshing who is mutual (import,
+  re-sync, manual) is data, not a rule change: no cooldown. A newly mutual person appears after a
+  refresh; an import with no following list is rejected, so the data can't be emptied to switch
+  the rules off.
+- The story gate is engine code run by every layer (navigation delegate, page guard, native
+  backstop, both watchdogs). The feed is default-deny in CSS: if the script can't run, the feed is
+  empty rather than unfiltered.
+- Residual: the feed filter runs only in the page (native can't see the DOM). A site change that
+  renders posts outside `article` shows them; the canary blurs them and asks for a report. Story
+  tray items without a link can't be checked (the gate still stops them playing).
+- Residual: a stories session opened from a profile is remembered in the page's navigation state;
+  the periodic watchdog, which has no "came from", closes to the feed instead of the profile.
+- The page script runs in the page's world, so the site could post fake names while a scan or
+  sync runs (they become data: mutuals widen only if both lists contain them), or a fake "hide"
+  (only ever a narrowing).
+
+## Turning the Lock on by accident
+- Press-and-hold confirmation for the Lock, Block deleting and Hard Lock.
+- 10-minute undo window (setting can only be shortened). It ends at the earliest of wall clock,
+  uptime, a reboot or the clock moving back, so clock tricks can only end it early. A Hard Lock
+  still blocks the undo.
 
 ## Defense in depth
 - Pending changes apply from the DeviceActivityMonitor extension at their due time, so they land

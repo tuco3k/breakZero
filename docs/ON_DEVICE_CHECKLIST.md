@@ -87,14 +87,17 @@ the lite app signs with a free Personal Team. Nothing has run on a device yet (s
     recipe can tell signed in from signed out. If any UA works, also turn on Wall › Platforms ›
     Snapchat and check that chat works in the Snapchat tab and that a Spotlight link is blocked.
 
-## F. Old Instagram spikes (S9, S10, free lite build)
+## F. Old Instagram spikes (S9, S10): done
 
-Sign in to Instagram in its tab first. Wall › tap the version 5× › Diagnostics › *S9–S10 · Old Instagram*.
+19. **S9 `?variant=following`: PASS** (owner, 2026-10-01: tapping the logo keeps the Following feed).
+20. **S10 Close Friends: PASS** (owner, 2026-10-01: the page opens). Both are recorded in
+    Diagnostics › Spike results; the one-tap checks are still there to re-run.
 
-19. **S9 `?variant=following`.** Tap *Run S9* and wait ~15 s (it loads the Following feed, taps Home,
-    then goes back by itself). Paste the `S9 ?variant=following:` log line. It says KEPT or DROPPED
-    after the load, the Home tap and Back, and whether it stayed on mobile web. Either way the
-    friends filter works (it doesn't depend on the variant); DROPPED means `ig.forceFollowing` will
-    keep reloading the Following feed (max 3 times per 30 s) and we may change the approach.
-20. **S10 Close Friends.** Tap *Run S10*, wait ~10 s, paste the `S10 close friends:` line (counts only).
-    WORKS = Wall › Instagram › Old Instagram › *Import Close Friends* can read it; anything else, tell me.
+## G. Feed rules (mutuals only)
+
+21. Request Instagram's data export (Accounts Center › Your information and permissions ›
+    Download your information › only "Followers and following", JSON). When it arrives, import
+    it: Wall › Instagram › Feed rules › Import. Report the summary line and roughly how long it took.
+22. Optional: Re-sync by scrolling on your account. Report how far it got, how long it took, and
+    whether Instagram showed anything.
+23. Walk `docs/QA.md` › *Feed rules*, *Limit modes*, *Accidental activation*, *Toasts*.
