@@ -9,15 +9,16 @@ free Personal Team. Waiting on owner: install on the iPhone + spike results.
 Phase 1 in progress: recipes, rule engine, all five filter layers and their tests are written;
 the WebKit glue compiles but hasn't run on a device.
 
-Test status (macOS, 2026-10-01): `npm test` (Node 26) → **65 pass**; `swift test` on the macOS host → 96 pass
-(UIKit/WebKit-only tests run in the Xcode scheme below).
+Test status (macOS, 2026-10-01, after Old Instagram): `npm test` (Node 26) → **98 pass**; `swift test` on the
+macOS host → 121 pass (LiteWeb tests run in the Xcode scheme below).
 
 Test status (Linux, Swift 6.0.3 + Node 22):
 - `cd Packages/BreakZeroKit && swift test` → **111 tests pass** (Core incl. limits with a fake clock, LiteWeb pure parts, Shielding with fakes).
 - `cd jstests && npm ci && npm test` → **62 tests pass** (shared route vectors for guard and watchdog, DOM filters, canaries, autoplay, media diagnostics).
 
 Test status (macOS, Xcode 27, iPhone 17 Pro Simulator iOS 26.2), `xcodebuild … CODE_SIGNING_ALLOWED=NO build test`:
-- **113 tests pass** (2026-10-01, after feedback round 1; build has no warnings): CoreTests 96, LiteWebTests 11, ShieldingTests 5, breakZeroTests 1.
+- **141 tests pass** (2026-10-01, after Old Instagram; build has no warnings): CoreTests 121, LiteWebTests 14, ShieldingTests 5, breakZeroTests 1.
+- (Round 1: 113 tests.): CoreTests 96, LiteWebTests 11, ShieldingTests 5, breakZeroTests 1.
 
 ## Phase 0 task plan
 - [x] P0.1 Read BRIEF/CLAUDE, draft `ARCHITECTURE.md`
@@ -119,37 +120,65 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   Node watchdog tests on the shared route vectors (Swift `RuleEngine.check` runs the same vectors);
   `docs/QA.md` › *Limits, budgets and schedules: try to break them*; SECURITY_MODEL.md residual risks.
 
+## Old Instagram (2026-10-01, ARCHITECTURE.md §4c, QUESTIONS #37–45)
+- [x] Design + open decisions logged.
+- [x] Core: `Friends.swift` (normalize, story gate, `FriendsScanState` with mutuals/suggestions),
+  `PlatformSettings.friends`, ratchet (`addFriend` loosening except the first, `removeFriend` instant
+  except the last, neutral while off), recipe `friendsFilter` (v2) + validator. 25 Swift tests.
+- [x] Story gate = generated route rule → enforced by every existing layer; shared route vectors run it
+  in Swift and JS.
+- [x] Page (`bz-filter.js`): default-deny feed posts and tray items (author = first profile href),
+  viewer hidden until checked + skip to the next friend in tray order, "You're all caught up" that
+  stops loading, forced Following feed (3 per 30 s then gives up), read-only setup scan (only while
+  armed), friends canaries. 27 Node tests with fixtures.
+- [x] App: Wall › Instagram › *Old Instagram* screen (toggles, search, add, swipe to remove,
+  suggestions, Add all, pending adds, scan Followers/Following, Import Close Friends), scan armed for
+  30 min, toast "Only friends' stories here." Diagnostics S9/S10 one-tap spikes.
+- [x] Built, 141 tests pass, installed and launched on the owner's iPhone. In the Simulator: Friends
+  screen renders, adding the first friend applies at once and Instagram still loads, no filter errors.
+- [ ] Spikes S9 (`?variant=following`) and S10 (Close Friends) — owner, one tap each.
+- [ ] Device markup unknown: post container (`main article`), tray links (`/stories/<user>/`), viewer
+  header link. All recipe data; adjust after the first device report.
+
 ## Next — what the owner should test on the phone (lite build is enough)
-Installed on the owner's iPhone 2026-10-01 (free team; reinstall after 7 days).
-1. **Top-right bar button**: shows/hides our tab bar. Hidden: the site runs to the bottom of the
-   screen (no white bar, fixed 8f9c8ff, confirmed). Shown: nothing of ours covers Instagram's bottom
-   navigation or YouTube's controls.
-2. **Accounts**: Wall › Accounts shows signed in/out per platform; *Sign out* signs out only that one.
-3. **YouTube playback, VPN on and off**: play 3–4 videos each way. Each starts without an extra tap;
-   when one finishes it doesn't move to another. If one won't play, send Diagnostics › Log
-   (`video error code …` / `stalled`). Also try signing in once with the VPN off: does the "browser
-   didn't seem trustworthy" warning stay? Signed out the tab opens on Search; library, playlists,
-   Watch later, history and channel pages open.
-4. **Subscriptions without signing in**: Takeout `subscriptions.csv` → list button in the YouTube
-   strip → Import → open a video.
-5. **Wall explainer**: shows the first time you open the Wall tab; "What is the wall?" brings it back;
-   the free-build section is right.
-6. **2-minute short-form budget hard-stops you**: Wall › Limits › Reels/Shorts budget = 2 min
-   (instant while the Lock is off; with the Lock on, turning a budget on waits the cooldown). Watch
-   reels: at 2:00 the reel stops within about a second, you land on the inbox, the strip says
-   "Reels/Shorts done today". Then try the Reels tab, a reel link, back/forward and a pasted
-   `/reels/` URL: each bounces within a second. Full list: `docs/QA.md` › *Limits, budgets and
-   schedules*.
-7. **Snapchat web spike (S8)**: Diagnostics › *S8 · Snapchat web chat*, desktop Safari UA first. Does
-   web.snapchat.com load, can you sign in, open a chat, send and receive? Paste the *Check Snapchat
-   session* cookie-name line. Details: `docs/ON_DEVICE_CHECKLIST.md` step 18.
+Installed on the owner's iPhone 2026-10-01 with Old Instagram (free team; reinstall after 7 days).
+
+Old Instagram (sign in to Instagram first):
+1. **Spike S9** — Diagnostics › *Run S9*: paste the `S9 ?variant=following:` line.
+2. **Spike S10** — Diagnostics › *Run S10*: paste the `S10 close friends:` line.
+3. **Set up friends** — Wall › Instagram › *Old Instagram* › *Find friends in Followers and Following*;
+   in the Instagram tab open your Followers, scroll to the end, then Following; back in Old Instagram,
+   add a few suggestions (the first applies at once). Say whether the counts look right.
+4. **Feed** — only friends' posts; scroll 2–3 minutes: never a stranger's post, then "You're all
+   caught up" and nothing loads below. Logo/Home and Back keep the Following feed.
+5. **Stories** — tray shows only friends; tap through fast to the end: never a flash of a
+   non-friend's story (skips to the next friend or closes). A non-friend's story ring on their profile
+   doesn't play.
+6. **Still works** — DMs (send, photo, new chat), search, any profile, posting, notifications.
+   Full list: `docs/QA.md` › *Old Instagram*.
+
+From round 1:
+7. **Top-right bar button**: shows/hides our tab bar; nothing of ours covers Instagram's bottom
+   navigation or YouTube's controls (white bar fixed and confirmed, 8f9c8ff).
+8. **Accounts**: Wall › Accounts shows signed in/out per platform; *Sign out* signs out only that one.
+9. **YouTube playback, VPN on and off**: 3–4 videos each way start without an extra tap and never
+   advance by themselves; if one won't play, send Diagnostics › Log. Try a sign-in with the VPN off:
+   does the "browser didn't seem trustworthy" warning stay?
+10. **Wall explainer**: first visit, "What is the wall?", free-build section.
+11. **2-minute short-form budget**: Wall › Limits › Reels/Shorts = 2 min (instant while the Lock is
+   off); at 2:00 the reel stops within about a second and every way back in bounces
+   (`docs/QA.md` › *Limits, budgets and schedules*).
+12. **Snapchat spike S8**: Diagnostics › *S8*, desktop Safari UA first — does web.snapchat.com chat
+   work in our web view? (`docs/ON_DEVICE_CHECKLIST.md` step 18)
+13. Subscriptions without signing in (Takeout CSV → list button in the YouTube strip).
 Still open from before: checklist steps 1–17 (S1, S3–S7 need the paid Screen Time build).
 
 ## Unverified
 Everything compiles on macOS (lite build, 2026-10-01; full build last checked at `0ec5866`). The lite
 app installs and launches on the owner's iPhone, but none of the new UI has been exercised on it yet:
 header strip / hidden tab bar, Accounts + `LiteSession` sign-out, Wall explainer, Limits and
-done-for-today, watchdog, YouTube RSS subscriptions, Diagnostics S8. Never run on a device:
+done-for-today, watchdog, YouTube RSS subscriptions, Diagnostics S8, and all of Old Instagram
+(Friends screen, scan, feed/tray/viewer filters on Instagram's real markup, S9/S10). Never run on a device:
 `ScreenTime.swift` and the three extensions (need the paid Screen Time build).
 Compiled and tested on Linux (CI: swift 6.0 + latest) and in Node: everything in `Core`, the pure parts
 of `LiteWeb` and `Shielding`, and `bz-filter.js`.

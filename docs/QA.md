@@ -78,3 +78,42 @@ Clock and time zone (all must change nothing):
 Ratchet:
 - [ ] Lowering a limit or adding a schedule: instant
 - [ ] Raising a limit, adding budget minutes, removing a schedule, turning the budget on: waits for the cooldown
+
+## Old Instagram (friends only): try to break it (on device)
+
+Setup: Wall › Instagram › Old Instagram › *Find friends in Followers and Following*. In the Instagram
+tab open your profile › Followers, scroll to the end; then Following. Back in Old Instagram: the
+counts appear, suggestions are people in both lists. Add 3–5 friends (the first applies at once; with
+the Lock on, the rest wait the cooldown). Also add one account you follow that posts a lot.
+
+Feed (`/?variant=following` and the plain `/`):
+- [ ] Only friends' posts show. No brands, creators, suggested posts, "Suggested for you" rows, ads
+- [ ] Scroll a long way (2–3 minutes): never a non-friend post, not even for a moment; "You're all
+      caught up" appears and nothing loads below it
+- [ ] Pull to refresh, then scroll again: same
+- [ ] Tap the Instagram logo / Home, and press Back: still the Following feed (or, if S9 said DROPPED,
+      still friends only)
+- [ ] Turn *Always open the Following feed* off (waits the cooldown if the Lock is on): the normal
+      feed is friends-only too
+- [ ] If a "Filter needs an update" banner shows on the feed, tap *Report*
+
+Stories:
+- [ ] The tray shows only friends' circles (and yours if you added yourself)
+- [ ] Open a friend's story and **tap through fast** to the end of everyone's stories: watch for a
+      flash of a non-friend's story. It must skip to the next friend or close, never show one frame
+- [ ] Let stories play by themselves to the end: same
+- [ ] Open a non-friend's profile and tap their story ring: it doesn't play (you land on the feed or
+      a friend's story); their profile and posts still open
+- [ ] A friend's highlight plays; a non-friend's highlight doesn't
+- [ ] Kill the app while on a friend's story, reopen: no non-friend story shows
+
+Must keep working (with Old Instagram on):
+- [ ] DMs: open a thread, send text and a photo, start a new chat, reply to a story from a DM
+- [ ] Search, and any profile you tap (friends and non-friends), their posts
+- [ ] Post a photo; notifications/activity page; settings; log out and log in again
+
+Friends list and the wall (Lock on):
+- [ ] Adding a friend waits the cooldown (shows in "Waiting to be added"); removing is instant
+- [ ] Removing your last friend waits the cooldown (it would switch the filter off)
+- [ ] Turning *Friends only* off waits the cooldown
+- [ ] *Import Close Friends* (if S10 said WORKS): your close friends appear as suggestions

@@ -70,6 +70,18 @@ callback):
 - **Free (lite) build:** deleting the app deletes the usage, the limits and the wall itself. Only the
   Screen Time build can block deleting breakZero (`denyAppRemoval`).
 
+## Old Instagram (friends only)
+- Adding a friend is a loosening (cooldown); removing is instant. Removing the **last** friend is a
+  loosening too, because an empty list switches the filter off. Turning it off waits the cooldown.
+- The story gate is an ordinary route rule, so the navigation delegate, the page guard, the native
+  backstop and both watchdogs enforce it; a non-friend story URL never starts loading. The feed is
+  default-deny in CSS: if the script can't run, the feed is empty rather than unfiltered.
+- Residual: the feed filter itself runs only in the page (native can't see the DOM). A site change
+  that renders posts outside `article` shows them; the friends canary blurs them and asks for a
+  report. Story tray items without a link can't be checked (the gate still stops them playing).
+- The setup scan runs in the page world, so the site could post fake usernames while a scan is
+  armed. They only ever become suggestions you must add, and adding waits the cooldown.
+
 ## Defense in depth
 - Pending changes apply from the DeviceActivityMonitor extension at their due time, so they land
   without the app; every launch reconciles too.

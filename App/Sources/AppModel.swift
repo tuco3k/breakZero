@@ -48,6 +48,11 @@ final class AppModel {
     private var meterTimer: Timer?
     private var ticks = 0
     private var matchers: [Platform: ShortFormMatcher] = [:]
+    /// Old Instagram setup: usernames read from the user's own lists (suggestions only).
+    private(set) var friendsScan = FriendsScanState()
+    /// While set and in the future, the Instagram page reads usernames on list pages.
+    private(set) var scanUntil: Date?
+    static let scanDuration: TimeInterval = 30 * 60
 
     struct Toast: Equatable, Identifiable {
         let id = UUID()
@@ -79,6 +84,7 @@ final class AppModel {
         recipes = r
         for (p, recipe) in r { matchers[p] = ShortFormMatcher(recipe) }
         usage = (try? store.read(UsageState.self, UsageState.file)) ?? UsageState()
+        friendsScan = (try? store.read(FriendsScanState.self, FriendsScanState.file)) ?? FriendsScanState()
         reload()
         if let first = policy.enabledPlatforms.first { selectedTab = .lite(first) } else { selectedTab = .wall }
     }
@@ -158,7 +164,8 @@ final class AppModel {
 
     static let strings = LiteStrings(
         needsUpdate: String(localized: "Filter needs an update"),
-        report: String(localized: "Report")
+        report: String(localized: "Report"),
+        caughtUp: String(localized: "You're all caught up")
     )
 
     func controller(for p: Platform) -> LiteWebController? {
@@ -178,6 +185,7 @@ final class AppModel {
         c.onDownloaded = { [weak self] url in self?.saveToPhotos(url) }
         c.onCookiesChanged = { [weak self] in Task { await self?.updateSession(p, thenLoadLanding: false) } }
         c.onViolation = { [weak self] v in self?.handleViolation(p, v) }
+        c.onFriendsScan = { [weak self] list, owner, names in self?.mergeScan(list, owner: owner, usernames: names) }
         c.setLimits(LiteLimits(blocked: limitStatus.platformBlock[p]?.rawValue))
         c.setWatchdogRunning(isForeground)
         controllers[p] = c
@@ -250,6 +258,74 @@ final class AppModel {
         log("signed out of \(p.rawValue) (cookies cleared)")
         controllers[p]?.loadLanding()
         await refreshSessions()
+    }
+
+    // MARK: Old Instagram (friends only)
+
+    var friends: [String] { policy.settings(for: .instagram).friends }
+
+    /// Old Instagram is filtering right now (toggle on and at least one friend).
+    var friendsActive: Bool {
+        guard let r = recipes[.instagram] else { return false }
+        return policy.settings(for: .instagram).friendsActive(in: r)
+    }
+
+    var friendSuggestions: [String] { friendsScan.suggestions(excluding: friends) }
+
+    /// Friends waiting for the cooldown (they show as pending, not as friends yet).
+    var pendingFriendAdds: [(username: String, due: Date)] {
+        lock.pending.compactMap { p in
+            if case let .addFriend(.instagram, u) = p.change { return (u, p.estimatedDue) }
+            return nil
+        }
+    }
+
+    var isScanning: Bool { scanUntil.map { $0 > Date() } ?? false }
+
+    /// Arm the read-only collector for 30 minutes and show the Instagram tab (optionally at `path`).
+    /// The user opens their own lists and scrolls; nothing is fetched for them.
+    func startFriendsScan(open path: String? = nil) {
+        guard policy.enabledPlatforms.contains(.instagram), let c = controller(for: .instagram) else { return }
+        scanUntil = Date().addingTimeInterval(Self.scanDuration)
+        c.setScanning(true)
+        log("friends scan started (30 min)")
+        selectedTab = .lite(.instagram)
+        if let path { c.load(path: path) }
+    }
+
+    func stopFriendsScan() {
+        guard scanUntil != nil else { return }
+        scanUntil = nil
+        controllers[.instagram]?.setScanning(false)
+        log("friends scan stopped")
+    }
+
+    func mergeScan(_ list: FriendsScanList, owner: String?, usernames: [String]) {
+        guard isScanning else { return }
+        var next = friendsScan
+        let added = next.merge(list, owner: owner, usernames: usernames, now: Date())
+        guard added > 0 || next != friendsScan else { return }
+        friendsScan = next
+        try? store.write(next, FriendsScanState.file)
+        log("friends scan: +\(added) from \(list.rawValue)")   // counts only, never names
+    }
+
+    func clearFriendsScan() {
+        friendsScan = FriendsScanState()
+        try? store.write(friendsScan, FriendsScanState.file)
+    }
+
+    /// Adds go through the ratchet (loosening, except the first friend); returns the results.
+    @discardableResult
+    func addFriends(_ usernames: [String]) -> [SubmitResult] {
+        let names = Array(Set(usernames.compactMap(Friends.normalize))).sorted()
+        guard !names.isEmpty else { return [] }
+        return submit(names.map { .addFriend(.instagram, username: $0) })
+    }
+
+    @discardableResult
+    func removeFriend(_ username: String) -> SubmitResult? {
+        submit([.removeFriend(.instagram, username: username)]).first
     }
 
     // MARK: Login-free YouTube (RSS + Takeout CSV)
@@ -331,6 +407,7 @@ final class AppModel {
 
     func tickUsage(counting: Bool) {
         let sample = SystemClockSource().sample()
+        if let until = scanUntil, sample.wall >= until { stopFriendsScan() }
         usage.tick(sample, activity: counting ? currentActivity : nil, timeZone: .current)
         ticks += 1
         if ticks % 5 == 0 { saveUsage() }
@@ -393,6 +470,9 @@ final class AppModel {
         if v.reason == "limit" {
             return v.detail == "schedule" ? String(localized: "\(p.displayName) is off by schedule.")
                 : String(localized: "Daily limit reached for \(p.displayName).")
+        }
+        if v.ruleID == Friends.storyGateID {
+            return String(localized: "Only friends' stories here.")
         }
         let isShortFormRule = v.ruleID.flatMap { id in recipes[p]?.routes.first { $0.id == id }?.shortForm } ?? false
         if isShortFormRule, limitStatus.shortForm == .forcedBlocked {

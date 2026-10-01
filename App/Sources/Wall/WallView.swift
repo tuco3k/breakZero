@@ -161,7 +161,17 @@ struct WallView: View {
                         }
                     }
                 }
-                ForEach(recipe.toggles, id: \.id) { t in
+                if recipe.friendsFilter != nil {
+                    NavigationLink {
+                        FriendsView()
+                    } label: {
+                        LabeledContent(String(localized: "Old Instagram (friends only)"),
+                                       value: model.friendsActive ? String(localized: "On") : String(localized: "Off"))
+                    }
+                }
+                // Old Instagram's own switches live on its screen.
+                ForEach(recipe.toggles.filter { $0.id != recipe.friendsFilter?.toggle && $0.id != recipe.friendsFilter?.forceFollowingToggle },
+                        id: \.id) { t in
                     Toggle(ToggleTitles.title(t.id), isOn: Binding(
                         get: { model.policy.settings(for: p).isOn(t.id, in: recipe) },
                         set: { submit(.setToggle(p, id: t.id, on: $0)) }))
@@ -235,6 +245,8 @@ struct WallView: View {
         case let .setDailyLimit(p, m?): String(localized: "\(p.displayName): \(m) min a day")
         case let .setDailyLimit(p, nil): String(localized: "\(p.displayName): no daily limit")
         case let .setShortFormBudget(m): m == 0 ? String(localized: "Reels/Shorts budget off") : String(localized: "Reels/Shorts: \(m) min a day")
+        case let .addFriend(p, u): String(localized: "\(p.displayName): add friend @\(u)")
+        case let .removeFriend(p, u): String(localized: "\(p.displayName): remove friend @\(u)")
         case let .removeSchedule(id):
             String(localized: "Remove schedule: ")
                 + (policy.limits.schedules.first { $0.id == id }.map { LimitsSection.targetName($0.target) + ", " + LimitsSection.window($0) } ?? "?")
@@ -255,6 +267,8 @@ enum ToggleTitles {
         case "ig.hideSuggested": String(localized: "Hide suggested accounts")
         case "ig.hideSponsored": String(localized: "Hide sponsored posts")
         case "ig.hideFeed": String(localized: "Hide the home feed entirely")
+        case "ig.friendsOnly": String(localized: "Friends only (Old Instagram)")
+        case "ig.forceFollowing": String(localized: "Always open the Following feed")
         case "yt.landOnSubscriptions": String(localized: "Open on Subscriptions")
         case "yt.shortsAsVideos": String(localized: "Play Shorts as normal videos")
         case "yt.hideShorts": String(localized: "Hide Shorts shelves and tabs")

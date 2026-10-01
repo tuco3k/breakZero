@@ -86,3 +86,15 @@ the lite app signs with a free Personal Team. Nothing has run on a device yet (s
     one? Then tap *Check Snapchat session* and paste the cookie-name line (names only), so the draft
     recipe can tell signed in from signed out. If any UA works, also turn on Wall › Platforms ›
     Snapchat and check that chat works in the Snapchat tab and that a Spotlight link is blocked.
+
+## F. Old Instagram spikes (S9, S10, free lite build)
+
+Sign in to Instagram in its tab first. Wall › tap the version 5× › Diagnostics › *S9–S10 · Old Instagram*.
+
+19. **S9 `?variant=following`.** Tap *Run S9* and wait ~15 s (it loads the Following feed, taps Home,
+    then goes back by itself). Paste the `S9 ?variant=following:` log line. It says KEPT or DROPPED
+    after the load, the Home tap and Back, and whether it stayed on mobile web. Either way the
+    friends filter works (it doesn't depend on the variant); DROPPED means `ig.forceFollowing` will
+    keep reloading the Following feed (max 3 times per 30 s) and we may change the approach.
+20. **S10 Close Friends.** Tap *Run S10*, wait ~10 s, paste the `S10 close friends:` line (counts only).
+    WORKS = Wall › Instagram › Old Instagram › *Import Close Friends* can read it; anything else, tell me.

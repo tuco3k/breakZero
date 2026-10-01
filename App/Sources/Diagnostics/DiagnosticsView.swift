@@ -75,6 +75,19 @@ struct DiagnosticsView: View {
             }
 
             Section {
+                Button("Run S9 · Does ?variant=following stick?") {
+                    probe = .init(url: "https://www.instagram.com/?variant=following", store: .platform(.instagram), ua: .webKitDefault,
+                                  check: .followingVariant)
+                }
+                Button("Run S10 · Can we open Close Friends?") {
+                    probe = .init(url: "https://www.instagram.com/accounts/close_friends/", store: .platform(.instagram), ua: .webKitDefault,
+                                  check: .closeFriends)
+                }
+            } header: { Text("S9–S10 · Old Instagram") } footer: {
+                Text("Sign in to Instagram in its tab first. Each check runs by itself in an unfiltered web view (about 15 s) and logs one result line: S9 loads the Following feed, taps Home, goes back, and says whether the variant stayed and whether it stayed on mobile web. S10 says whether the Close Friends page opens and how many checked rows it shows (counts only, no names).")
+            }
+
+            Section {
                 Button("web.snapchat.com · WebKit UA") { probe = .init(url: "https://web.snapchat.com/", store: .platform(.snapchat), ua: .webKitDefault) }
                 Button("web.snapchat.com · desktop Safari UA") { probe = .init(url: "https://web.snapchat.com/", store: .platform(.snapchat), ua: .desktopSafari) }
                 Button("web.snapchat.com · mobile Safari UA") { probe = .init(url: "https://web.snapchat.com/", store: .platform(.snapchat), ua: .safari) }
@@ -239,9 +252,12 @@ struct DiagnosticsView: View {
 
 struct Probe: Identifiable {
     enum Store { case shared, named, platform(Platform) }
+    /// A scripted spike that runs by itself after the first load and logs one result line.
+    enum Check { case followingVariant, closeFriends }
     let url: String
     let store: Store
     let ua: UserAgentMode
+    var check: Check? = nil
     let id = UUID()
 }
 
@@ -252,7 +268,7 @@ struct ProbeWebView: UIViewRepresentable {
 
     static func platformStoreID(_ p: Platform) -> UUID { LiteWebController.dataStoreID(p) }
 
-    func makeCoordinator() -> Coordinator { Coordinator(log: log, label: probe.url) }
+    func makeCoordinator() -> Coordinator { Coordinator(log: log, label: probe.url, check: probe.check) }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -279,15 +295,82 @@ struct ProbeWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate {
         let log: (String) -> Void
         let label: String
+        let check: Probe.Check?
         var started = Date()
+        private var checkStarted = false
 
-        init(log: @escaping (String) -> Void, label: String) {
+        init(log: @escaping (String) -> Void, label: String, check: Probe.Check?) {
             self.log = log
             self.label = label
+            self.check = check
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             log(String(format: "probe finished %@ in %.2fs (now at %@)", label, Date().timeIntervalSince(started), webView.url?.host ?? "?"))
+            guard let check, !checkStarted else { return }
+            checkStarted = true
+            Task { @MainActor [weak webView] in
+                guard let webView else { return }
+                switch check {
+                case .followingVariant: await self.runS9(webView)
+                case .closeFriends: await self.runS10(webView)
+                }
+            }
+        }
+
+        /// Host and kind of page only: never log a path that could contain a username.
+        static func describe(_ url: URL?) -> String {
+            guard let url else { return "none" }
+            let path = url.path.isEmpty ? "/" : url.path
+            let kind: String
+            if path == "/" { kind = "feed" }
+            else if path.hasPrefix("/accounts/login") { kind = "login" }
+            else if path.hasPrefix("/accounts/close_friends") { kind = "close friends" }
+            else if path.hasPrefix("/accounts/") { kind = "accounts page" }
+            else if path.hasPrefix("/challenge") { kind = "checkpoint" }
+            else { kind = "other page" }
+            return "\(url.host ?? "?") \(kind)\(hasVariant(url) ? " +variant" : "")"
+        }
+
+        static func hasVariant(_ url: URL?) -> Bool {
+            (url?.query ?? "").split(separator: "&").contains("variant=following")
+        }
+
+        /// S9: does the Following variant survive the load, a Home/logo tap and Back? Mobile web?
+        func runS9(_ webView: WKWebView) async {
+            try? await Task.sleep(for: .seconds(4))
+            let loaded = webView.url
+            let ua = (try? await webView.evaluateJavaScript("navigator.userAgent")) as? String ?? ""
+            let tapJS = "(function(){var a=document.querySelector('a[href=\"/\"],a[href^=\"/?variant\"]');if(!a)return 'no home link';a.click();return 'tapped';})()"
+            let tap = (try? await webView.evaluateJavaScript(tapJS)) as? String ?? "script failed"
+            try? await Task.sleep(for: .seconds(4))
+            let afterTap = webView.url
+            _ = try? await webView.evaluateJavaScript("history.back(); 0")
+            try? await Task.sleep(for: .seconds(4))
+            let afterBack = webView.url
+            func verdict(_ u: URL?) -> String { Self.hasVariant(u) ? "KEPT" : "DROPPED" }
+            let mobile = loaded?.host == "www.instagram.com" && ua.contains("Mobile")
+            log("S9 ?variant=following: load \(verdict(loaded)) (\(Self.describe(loaded))); home \(tap) → \(verdict(afterTap)) (\(Self.describe(afterTap))); back → \(verdict(afterBack)) (\(Self.describe(afterBack))); mobile web: \(mobile ? "yes" : "no")")
+        }
+
+        /// S10: does /accounts/close_friends/ open, and does it show checked rows? Counts only.
+        func runS10(_ webView: WKWebView) async {
+            try? await Task.sleep(for: .seconds(6))
+            let js = """
+                (function(){
+                  var re=/^\\/[A-Za-z0-9._]{1,30}\\/?$/;
+                  var links=[].filter.call(document.querySelectorAll('a[href]'),function(a){return re.test(a.getAttribute('href'));}).length;
+                  var boxes=document.querySelectorAll('input[type=checkbox],[role=checkbox]').length;
+                  var checked=document.querySelectorAll('input[type=checkbox]:checked,[role=checkbox][aria-checked=true]').length;
+                  return JSON.stringify({links:links,boxes:boxes,checked:checked});
+                })()
+                """
+            let raw = (try? await webView.evaluateJavaScript(js)) as? String ?? "{}"
+            let counts = (try? JSONSerialization.jsonObject(with: Data(raw.utf8))) as? [String: Int] ?? [:]
+            let stayed = webView.url?.path.hasPrefix("/accounts/close_friends") ?? false
+            let boxes = counts["boxes"] ?? 0, checked = counts["checked"] ?? 0
+            let verdict = !stayed ? "NOT AVAILABLE (redirected)" : boxes == 0 ? "OPENS, NO CHECKBOXES" : checked == 0 ? "OPENS, NOTHING CHECKED" : "WORKS"
+            log("S10 close friends: \(verdict) · now at \(Self.describe(webView.url)) · profile links \(counts["links"] ?? 0), checkboxes \(boxes), checked \(checked)")
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
