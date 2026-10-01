@@ -134,6 +134,17 @@ public enum UnreadBadge {
     }
 }
 
+/// Media playback in lite views. Owner decision (QUESTIONS #27, 2026-10-01): the wall rule is
+/// "no autoplay chains", not "no playback". So the video you open may start without an extra tap
+/// (no user-gesture requirement), and moving on to *another* video after one ends is still refused
+/// by the autoplay guard (`blockAutoAdvance` in the recipe, enforced by the route guard and the
+/// watchdog).
+public enum PlaybackPolicy {
+    /// Should WebKit require a user gesture before media plays? Maps to
+    /// `WKWebViewConfiguration.mediaTypesRequiringUserActionForPlayback` (`.all` / `[]`).
+    public static func requiresUserGesture(_ platform: Platform) -> Bool { false }
+}
+
 /// Human names for `MediaError.code`, for the Diagnostics log.
 public enum MediaDiagnostics {
     public static func describe(event: String, kind: String, code: Int?, source: String) -> String {

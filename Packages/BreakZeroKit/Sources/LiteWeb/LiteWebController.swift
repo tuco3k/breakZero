@@ -113,8 +113,9 @@ public final class LiteWebController: NSObject {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = dataStore ?? WKWebsiteDataStore(forIdentifier: Self.dataStoreID(platform))
         config.allowsInlineMediaPlayback = true
-        // YouTube: never start playback without a tap (part of "autoplay off").
-        config.mediaTypesRequiringUserActionForPlayback = platform == .youtube ? .all : []
+        // The video you open plays; chains to the next one are blocked by the autoplay guard
+        // instead (QUESTIONS #27). See PlaybackPolicy.
+        config.mediaTypesRequiringUserActionForPlayback = PlaybackPolicy.requiresUserGesture(platform) ? .all : []
         config.defaultWebpagePreferences.preferredContentMode = ua == .desktopSafari ? .desktop : .mobile
         config.limitsNavigationsToAppBoundDomains = false
         self.webView = WKWebView(frame: .zero, configuration: config)

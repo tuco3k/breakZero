@@ -83,6 +83,25 @@ final class LiteScriptBuilderTests: XCTestCase {
         XCTAssertTrue(update.contains(#""limits":{}"#) || update.contains(#""limits":{"blocked":null}"#))
     }
 
+    /// QUESTIONS #27: the video you open may play (no extra tap), but chains stay blocked: the
+    /// default YouTube recipe still carries the autoplay guard. (Its behavior — finishing a video
+    /// never advances — is tested in jstests/watchdog.test.js and dom.test.js.)
+    func testChosenVideoPlaysButAutoplayChainsStayBlocked() throws {
+        for p in Platform.allCases {
+            XCTAssertFalse(PlaybackPolicy.requiresUserGesture(p), "\(p): a video you open must be able to play")
+        }
+        let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(.youtube))
+        let guardRule = try XCTUnwrap(active.recipe.behaviors.first { $0.type == .blockAutoAdvance },
+                                      "the autoplay guard is on by default")
+        XCTAssertEqual(guardRule.toggle, "yt.autoplayOff")
+        XCTAssertEqual(guardRule.param, "v")
+        XCTAssertEqual(guardRule.routes, ["^/watch"])
+        // The guard ships inside the script the page gets.
+        let script = try LiteScriptBuilder.userScript(filterSource: "", active: active, state: .init(),
+                                                      strings: strings, previousHref: nil)
+        XCTAssertTrue(script.contains(#""type":"blockAutoAdvance""#))
+    }
+
     func testStableHash() {
         XCTAssertEqual(LiteScriptBuilder.stableHash(""), "cbf29ce484222325")
         XCTAssertEqual(LiteScriptBuilder.stableHash("a"), "af63dc4c8601ec8c")

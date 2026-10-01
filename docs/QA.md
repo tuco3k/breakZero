@@ -15,7 +15,8 @@ Run before every release. Record device, iOS version, date, pass/fail per line.
 ## YouTube lite
 - [ ] `/` lands on Subscriptions; every `/shorts/ID` opens as a normal watch page
 - [ ] No Shorts shelves/tabs; no home recommendations; no related/up-next; no end-screen cards
-- [ ] A finished video never auto-advances
+- [ ] A video you open starts playing without an extra tap (QUESTIONS #27)
+- [ ] A finished video never auto-advances (also with the autoplay switch in the player turned on)
 - [ ] Search, library, playlists, watch later, history, channel pages work; player untouched
 
 ## Shields & passes

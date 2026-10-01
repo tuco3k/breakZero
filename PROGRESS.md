@@ -37,7 +37,7 @@ Test status (macOS, Xcode 27, iPhone 17 Pro Simulator iOS 26.2), `xcodebuild …
 - [x] Layer 4: MutationObserver + rAF heuristics, structural-container safety (tested)
 - [x] Layer 5: canaries → blur + "Filter needs an update" + Report (prefilled GitHub issue, ids only) (tested in JS; native report UNVERIFIED)
 - [x] Allow zones (no DOM work in DMs/login/compose) (tested)
-- [x] YouTube autoplay guard (tested in JS) + tap-to-play for YouTube media (UNVERIFIED)
+- [x] YouTube autoplay guard (tested in JS); tap-to-play **removed** per owner (QUESTIONS #27): the video you open plays, chains stay blocked
 - [x] Persistent per-platform `WKWebsiteDataStore(forIdentifier:)`, process-termination reload (UNVERIFIED)
 - [x] Downloads → Photos (add-only), state restore via `interactionState` after process kill (UNVERIFIED)
 - [x] Unread counts on lite tabs from the page title's digits (parser tested; badge UNVERIFIED)
@@ -73,7 +73,9 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   (no `LOGIN_INFO`/`SID`/`__Secure-3PSID` cookie) the tab lands on Search (`/results?search_query=`).
   Playback: a test proves no content rule can match googlevideo/ytimg/ggpht/player requests;
   passive media listeners log `error` (with MediaError name), first `stalled` and first `playing`
-  per video to Diagnostics. Tap-to-play left unchanged (QUESTIONS #27 asks the owner).
+  per video to Diagnostics. Tap-to-play then removed with the owner's approval (QUESTIONS #27,
+  2026-10-01): the video you open plays without an extra tap; finishing it never advances
+  (`PlaybackPolicy`, tested in Swift and Node).
   **S2 result recorded**: Google warned "browser didn't seem trustworthy", two sign-ins needed, VPN
   on (SECURITY_MODEL.md "Spike results"). Login-free fallback built: Takeout CSV import + RSS feeds
   (`YouTubeSubscriptions.swift`, `NetworkPolicy.youtubeFeed`, tested) and a native list sheet from
@@ -133,7 +135,8 @@ UNVERIFIED (list below); expect a round of compile fixes.
 6. **Limits** (item 4) and **watchdog** (item 5): run the new *Limits, budgets and schedules* section
    of `docs/QA.md` end to end. Every path must hard-stop within about a second.
 7. **Snapchat spike S8** (item 6): `docs/ON_DEVICE_CHECKLIST.md` step 18.
-8. Answer QUESTIONS.md **#27** (may YouTube tap-to-play be relaxed if it's what blocks playback?).
+8. YouTube playback after #27: open a video, it should start without an extra tap; let it finish,
+   it must not move to another video. Note whether muted previews start by themselves in feeds.
 Still open from before: checklist steps 1–17 (spikes S1, S3–S7 need the paid Screen Time build).
 
 ## Unverified
