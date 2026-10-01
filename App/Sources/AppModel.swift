@@ -23,6 +23,8 @@ final class AppModel {
     var selectedTab: AppTab = .lite(.instagram)
     var externalURL: IdentifiedURL?
     var showDiagnostics = false
+    /// The user saw the "wall is down" screen and chose to carry on (this session only).
+    var acknowledgedWallDown = false
     var lastMessage: String?
     private(set) var controllers: [Platform: LiteWebController] = [:]
     let launchedAt: Date

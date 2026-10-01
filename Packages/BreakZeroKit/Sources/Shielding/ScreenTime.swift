@@ -128,6 +128,65 @@ public struct DeviceActivityScheduler: ActivityScheduling {
     }
 }
 
+
+/// Phase 0 spikes only. Uses its own named store ("wall.diagnostics") and its own selection file,
+/// so spikes can never clobber the real wall.
+public enum DiagnosticsShield {
+    public static let selectionFile = "diagnostics-selection.json"
+    public static let s7Activity = "bz.diag.s7"
+
+    static var store: ManagedSettingsStore { ManagedSettingsStore(named: .init(ShieldStoreName.diagnostics.rawValue)) }
+
+    public static func save(_ s: FamilyActivitySelection, in shared: SharedStore) throws {
+        try shared.write(try TokenFingerprint.selection(s), selectionFile)
+    }
+
+    public static func load(_ shared: SharedStore) -> FamilyActivitySelection? {
+        guard let sel = try? shared.read(ShieldSelection.self, selectionFile) else { return nil }
+        return TokenFingerprint.decode(sel)
+    }
+
+    /// Shield the saved selection in the diagnostics store. Returns a log line.
+    @discardableResult
+    public static func shield(_ shared: SharedStore) -> String {
+        guard let s = load(shared) else { return "no diagnostics selection saved" }
+        let st = store
+        st.shield.applications = s.applicationTokens.isEmpty ? nil : s.applicationTokens
+        st.shield.applicationCategories = s.categoryTokens.isEmpty ? nil : .specific(s.categoryTokens)
+        st.shield.webDomains = s.webDomainTokens.isEmpty ? nil : Set(s.webDomainTokens.prefix(50))
+        return "diagnostics shield applied: \(s.applicationTokens.count) apps, \(s.categoryTokens.count) categories, \(s.webDomainTokens.count) domains"
+    }
+
+    public static func clear() {
+        store.clearAllSettings()
+    }
+
+    public static func setDenyAppRemoval(_ on: Bool) {
+        store.application.denyAppRemoval = on ? true : nil
+    }
+
+    /// S7: lift the diagnostics shield now and ask DeviceActivity to re-apply it in `minutes`.
+    /// `backdate` uses the backdated-start workaround; without it the interval is exactly
+    /// `minutes` long, which records whether the 15-minute minimum is real.
+    public static func startPass(minutes: Double, backdate: Bool, shared: SharedStore) throws -> String {
+        let now = Date()
+        let end = now.addingTimeInterval(minutes * 60)
+        let schedule: DeviceActivitySchedule
+        if backdate {
+            schedule = DeviceActivityScheduler.schedule(ending: end, now: now)
+        } else {
+            schedule = DeviceActivitySchedule(intervalStart: DeviceActivityScheduler.components(now),
+                                              intervalEnd: DeviceActivityScheduler.components(end), repeats: false)
+        }
+        let center = DeviceActivityCenter()
+        center.stopMonitoring([.init(s7Activity)])
+        try center.startMonitoring(.init(s7Activity), during: schedule)
+        clear()
+        try? shared.write(end, "diagnostics-s7-expected-end.json")
+        return "S7 pass started: \(minutes) min, backdate=\(backdate), expected re-shield at \(end)"
+    }
+}
+
 extension WallEnforcer {
     /// Production wiring used by the app and every extension.
     public static func live(store: SharedStore, recipes: [Recipe]) -> WallEnforcer {

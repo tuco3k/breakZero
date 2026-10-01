@@ -48,7 +48,7 @@ public final class LiteWebController: NSObject {
 
     /// Stable per-platform data store identifiers (iOS 17+): sessions persist across launches and
     /// each platform's cookies stay separate (also a candidate workaround for Spike S1).
-    static func dataStoreID(_ p: Platform) -> UUID {
+    public nonisolated static func dataStoreID(_ p: Platform) -> UUID {
         switch p {
         case .instagram: UUID(uuidString: "6F1D7A52-3C0B-4C55-9E7A-1B0A6E1D0001")!
         case .youtube: UUID(uuidString: "6F1D7A52-3C0B-4C55-9E7A-1B0A6E1D0002")!
