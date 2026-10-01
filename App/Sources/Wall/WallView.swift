@@ -80,20 +80,27 @@ struct WallView: View {
         }
     }
 
-    /// Right after the Lock goes on: a countdown with Undo (QUESTIONS #53).
-    private var graceBanner: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            if let left = model.graceRemaining() {
-                Section {
+    /// Right after the Lock goes on: a countdown with Undo (QUESTIONS #53). Only in the list while
+    /// the window is open (a TimelineView in a List always takes a row, even when empty).
+    @ViewBuilder private var graceBanner: some View {
+        if model.graceRemaining() != nil {
+            Section {
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
                     HStack {
                         VStack(alignment: .leading) {
                             Text("The Lock is on").font(.headline)
-                            Text("You can undo it for \(Duration.seconds(left.rounded(.up)).formatted(.time(pattern: .minuteSecond)))")
-                                .font(.footnote).foregroundStyle(.secondary).monospacedDigit()
+                            if let left = model.graceRemaining() {
+                                Text("You can undo it for \(Duration.seconds(left.rounded(.up)).formatted(.time(pattern: .minuteSecond)))")
+                                    .font(.footnote).foregroundStyle(.secondary).monospacedDigit()
+                            } else {
+                                Text("The undo window has ended.").font(.footnote).foregroundStyle(.secondary)
+                            }
                         }
                         Spacer()
-                        Button(String(localized: "Undo")) { submit(.setLockEnabled(false)) }
-                            .buttonStyle(.borderedProminent)
+                        if model.graceRemaining() != nil {
+                            Button(String(localized: "Undo")) { submit(.setLockEnabled(false)) }
+                                .buttonStyle(.borderedProminent)
+                        }
                     }
                 }
             }
