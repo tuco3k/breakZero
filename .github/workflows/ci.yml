@@ -47,20 +47,21 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Generate project
-        run: xcodegen generate
+      - name: Generate project (full app)
+        run: BZ_SCREEN_TIME=YES xcodegen generate
       - name: Build and test
         run: |
           set -o pipefail
           xcodebuild -scheme breakZero \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
             CODE_SIGNING_ALLOWED=NO build test | tail -200
-      - name: Check the BZ_SCREEN_TIME switch (YES embeds 3 extensions, NO embeds none)
+      - name: Check the BZ_SCREEN_TIME switch (YES embeds 3 extensions, unset embeds none)
         run: |
           set -euo pipefail
           for mode in YES NO; do
+            if [ "$mode" = YES ]; then BZ_SCREEN_TIME=YES xcodegen generate; else xcodegen generate; fi
             xcodebuild -scheme breakZero -destination 'generic/platform=iOS Simulator' \
-              -derivedDataPath "build/st-$mode" CODE_SIGNING_ALLOWED=NO BZ_SCREEN_TIME=$mode build | tail -20
+              -derivedDataPath "build/st-$mode" CODE_SIGNING_ALLOWED=NO build | tail -20
             app=$(find "build/st-$mode" -name breakZero.app -type d -path '*Debug-iphonesimulator*' | head -1)
             count=$(find "$app" -maxdepth 2 -name '*.appex' | wc -l | tr -d ' ')
             echo "BZ_SCREEN_TIME=$mode → $count extensions embedded"

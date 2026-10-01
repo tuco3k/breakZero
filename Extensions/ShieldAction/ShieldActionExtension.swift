@@ -1,4 +1,4 @@
-// UNVERIFIED: written on Linux, never compiled. Build on a Mac first (see PROGRESS.md).
+// Compiles on macOS (Xcode 27, iOS 27 SDK, 2026-10-01). Not yet run on a device (see PROGRESS.md).
 import Core
 import Foundation
 import ManagedSettings
@@ -26,7 +26,8 @@ final class ShieldActionExtension: ShieldActionDelegate {
         case .secondaryButtonPressed:
             link = DeepLink.pass
             body = String(localized: "Tap to request a native pass.")
-        @unknown default:
+        default:
+            // Submenu items (iOS 27 SDK) and future cases: we configure no submenu, so just close.
             completionHandler(.close)
             return
         }
@@ -38,8 +39,10 @@ final class ShieldActionExtension: ShieldActionDelegate {
         content.userInfo = [DeepLink.userInfoKey: link.absoluteString]
         content.interruptionLevel = .timeSensitive
         let request = UNNotificationRequest(identifier: "bz.shield.\(UUID().uuidString)", content: content, trigger: nil)
+        // ManagedSettings calls this handler once from any thread; the SDK just doesn't mark it Sendable.
+        nonisolated(unsafe) let completion = completionHandler
         UNUserNotificationCenter.current().add(request) { _ in
-            completionHandler(.close)
+            completion(.close)
         }
     }
 

@@ -3,9 +3,8 @@
 Things only you can do: they need your iPhone, your Apple Developer account, or signing.
 Work top to bottom. Each step says what to report back (paste into a GitHub issue or the chat).
 
-Nothing here has been built yet: this repo was written in a Linux session with no Xcode. Every
-Swift file outside `Packages/BreakZeroKit/Sources/Core` and the pure parts of `LiteWeb`/`Shielding`
-is **UNVERIFIED** (see `PROGRESS.md`). Expect a round of compile fixes in step 4.
+Status (2026-10-01): everything compiles on macOS (Xcode 27) in both variants, all tests pass, and
+the lite app signs with a free Personal Team. Nothing has run on a device yet (see `PROGRESS.md`).
 
 ## A. Accounts and entitlements (do these first — they have lead time)
 
@@ -26,15 +25,16 @@ is **UNVERIFIED** (see `PROGRESS.md`). Expect a round of compile fixes in step 4
    Set `DEVELOPMENT_TEAM` in `project.yml` (top-level `settings.base`) or in Xcode's Signing tab.
    - First: `cd Packages/BreakZeroKit && swift test` (should pass; it already passes on Linux).
    - Then: `xcodebuild -scheme breakZero -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO build test`
-   - Fix compile errors in the UNVERIFIED files (start with `LiteWebController.swift`,
-     `ScreenTime.swift`, then `App/`, then `Extensions/`). Report anything structural.
-   - **No Family Controls entitlement yet** (or signing trouble with the extensions)? Set
-     `BZ_SCREEN_TIME: NO` in `project.yml` (or pass `BZ_SCREEN_TIME=NO` to `xcodebuild`). That
-     build has no Family Controls entitlement, leaves the three Screen Time extensions out of the
-     app, and compiles out every Screen Time call, so you can run the lite views (section D)
-     right away. Spikes S1 shielding, S5 and S7 need `YES`. To confirm the switch works, run the
-     CI workflow manually with *ios_build* ticked (it checks 3 extensions embedded vs 0), or look
-     inside the built `breakZero.app/PlugIns`.
+   - Both variants compiled cleanly on 2026-10-01 (Xcode 27); report any new compile errors.
+   - **Plain `xcodegen generate` builds the lite app**: no Screen Time extensions, no
+     entitlements, every Screen Time call compiled out. It signs with a free Personal Team, so you
+     can run the lite views (section D) right away:
+     `xcodebuild -scheme breakZero -destination 'generic/platform=iOS' -allowProvisioningUpdates DEVELOPMENT_TEAM=<your team ID> build`
+     (or open the project and pick your team in the Signing tab; regenerating resets it).
+   - **Full app** (spikes S1 shielding, S5, S7 and everything Screen Time): needs a paid team with
+     the Family Controls (Development) capability and the App Group. Generate with
+     `BZ_SCREEN_TIME=YES xcodegen generate`; that adds the three extensions from
+     `project-screen-time.yml`. Check `breakZero.app/PlugIns` holds 3 `.appex` (lite: no `PlugIns`).
 5. Run on your iPhone (Debug, Development signing). In the app, open **Wall** and tap the
    version line at the bottom **5 times** to open **Diagnostics**.
 6. Diagnostics → **Request Screen Time authorization**. Report: did the system sheet appear and

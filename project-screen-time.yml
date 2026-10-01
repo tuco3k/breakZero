@@ -1,0 +1,110 @@
+# Screen Time half of the project. Included by project.yml only when generated with
+# `BZ_SCREEN_TIME=YES xcodegen generate`. Needs a paid team with the Family Controls (Development)
+# capability and the App Group registered; a free Personal Team can't sign this.
+# XcodeGen merges this file under project.yml: dictionaries merge, arrays append, and a scalar
+# set in project.yml wins. So this file only adds keys that project.yml leaves unset.
+
+targets:
+  breakZero:
+    dependencies:
+      - target: ShieldConfiguration
+      - target: ShieldAction
+      - target: DeviceActivityMonitor
+      - sdk: FamilyControls.framework
+      - sdk: ManagedSettings.framework
+      - sdk: DeviceActivity.framework
+    settings:
+      base:
+        # Family Controls (Development) + App Group.
+        CODE_SIGN_ENTITLEMENTS: App/breakZero.entitlements
+        # App code gates every Screen Time call on this flag.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) BZ_SCREEN_TIME
+
+  ShieldConfiguration:
+    type: app-extension
+    platform: iOS
+    sources: [Extensions/ShieldConfiguration]
+    dependencies:
+      - package: BreakZeroKit
+        product: Core
+      - sdk: ManagedSettings.framework
+      - sdk: ManagedSettingsUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BZ_BUNDLE_ID).ShieldConfiguration
+    info:
+      path: Extensions/ShieldConfiguration/Info.plist
+      properties:
+        CFBundleDisplayName: breakZero Shield
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        BZAppGroup: $(BZ_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ManagedSettingsUI.shield-configuration-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldConfigurationExtension
+    entitlements:
+      path: Extensions/ShieldConfiguration/ShieldConfiguration.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups: [$(BZ_APP_GROUP)]
+
+  ShieldAction:
+    type: app-extension
+    platform: iOS
+    sources: [Extensions/ShieldAction]
+    dependencies:
+      - package: BreakZeroKit
+        product: Core
+      - package: BreakZeroKit
+        product: Shielding
+      - sdk: ManagedSettings.framework
+      - sdk: UserNotifications.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BZ_BUNDLE_ID).ShieldAction
+    info:
+      path: Extensions/ShieldAction/Info.plist
+      properties:
+        CFBundleDisplayName: breakZero Shield Action
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        BZAppGroup: $(BZ_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ManagedSettings.shield-action-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldActionExtension
+    entitlements:
+      path: Extensions/ShieldAction/ShieldAction.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups: [$(BZ_APP_GROUP)]
+
+  DeviceActivityMonitor:
+    type: app-extension
+    platform: iOS
+    sources: [Extensions/DeviceActivityMonitor]
+    dependencies:
+      - package: BreakZeroKit
+        product: Core
+      - package: BreakZeroKit
+        product: Shielding
+      - sdk: DeviceActivity.framework
+      - sdk: ManagedSettings.framework
+      - sdk: FamilyControls.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BZ_BUNDLE_ID).DeviceActivityMonitor
+    info:
+      path: Extensions/DeviceActivityMonitor/Info.plist
+      properties:
+        CFBundleDisplayName: breakZero Monitor
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        BZAppGroup: $(BZ_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.deviceactivity.monitor-extension
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).DeviceActivityMonitorExtension
+    entitlements:
+      path: Extensions/DeviceActivityMonitor/DeviceActivityMonitor.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups: [$(BZ_APP_GROUP)]

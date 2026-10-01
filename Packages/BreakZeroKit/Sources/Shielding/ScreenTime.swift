@@ -1,4 +1,4 @@
-// UNVERIFIED: written on Linux, never compiled. Build on a Mac first (see PROGRESS.md).
+// Compiles on macOS (Xcode 27, iOS 27 SDK, 2026-10-01). Not yet run on a device (see PROGRESS.md).
 // Screen Time APIs don't work in the Simulator; behavior must be checked on a device
 // (docs/ON_DEVICE_CHECKLIST.md). Never assume a shield works because this compiles.
 #if os(iOS) && canImport(ManagedSettings) && canImport(FamilyControls) && canImport(DeviceActivity)

@@ -52,7 +52,7 @@ public struct SystemClockSource: ClockSource {
         guard sysctlbyname("kern.bootsessionuuid", nil, &size, nil, 0) == 0, size > 0 else { return "unknown" }
         var buf = [CChar](repeating: 0, count: size)
         guard sysctlbyname("kern.bootsessionuuid", &buf, &size, nil, 0) == 0 else { return "unknown" }
-        return String(cString: buf)
+        return String(decoding: buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         #else
         let s = (try? String(contentsOfFile: "/proc/sys/kernel/random/boot_id", encoding: .utf8)) ?? "unknown"
         return s.trimmingCharacters(in: .whitespacesAndNewlines)

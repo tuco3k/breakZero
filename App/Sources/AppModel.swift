@@ -1,4 +1,4 @@
-// UNVERIFIED: written on Linux, never compiled. Build on a Mac first (see PROGRESS.md).
+// Compiles on macOS (Xcode 27, iOS 27 SDK, 2026-10-01). Not yet run on a device (see PROGRESS.md).
 import Core
 import Foundation
 import LiteWeb
@@ -78,10 +78,10 @@ final class AppModel {
 
     /// Launch / foreground / after any change: the same idempotent routine the extensions run.
     func reconcile(source: String) {
-        #if !BZ_NO_SCREEN_TIME && canImport(ManagedSettings) && canImport(FamilyControls) && canImport(DeviceActivity)
+        #if BZ_SCREEN_TIME && canImport(ManagedSettings) && canImport(FamilyControls) && canImport(DeviceActivity)
         WallEnforcer.live(store: store, recipes: Array(recipes.values)).reconcile(source: source)
         #else
-        try? store.update(AppGroup.File.lock, default: LockState()) { (lock: inout LockState) in
+        _ = try? store.update(AppGroup.File.lock, default: LockState()) { (lock: inout LockState) in
             try store.update(AppGroup.File.policy, default: WallPolicy()) { (policy: inout WallPolicy) in
                 ratchet.applyDue(policy: &policy, lock: &lock, at: SystemClockSource().sample())
             }

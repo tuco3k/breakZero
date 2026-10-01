@@ -1,7 +1,7 @@
-// UNVERIFIED: written on Linux, never compiled. Build on a Mac first (see PROGRESS.md).
+// Compiles on macOS (Xcode 27, iOS 27 SDK, 2026-10-01). Not yet run on a device (see PROGRESS.md).
 // Phase 0 spikes S1–S7 (BRIEF §6). Each button does one thing and writes to the shared log, which
 // the extensions also write to. Results get reported back by the owner (docs/ON_DEVICE_CHECKLIST.md).
-// Built with BZ_SCREEN_TIME=NO (project.yml), every Screen Time call is compiled out (BZ_NO_SCREEN_TIME);
+// Without the BZ_SCREEN_TIME Swift flag (plain `xcodegen generate`), every Screen Time call is compiled out;
 // the web-view spikes still work.
 import Core
 import FamilyControls
@@ -20,9 +20,9 @@ struct DiagnosticsView: View {
 
     var body: some View {
         List {
-            #if BZ_NO_SCREEN_TIME
+            #if !BZ_SCREEN_TIME
             Section {
-                Text("iOS \(UIDevice.current.systemVersion) · Screen Time is compiled out of this build (BZ_SCREEN_TIME=NO). S1 shielding, S5 and S7 need a build with BZ_SCREEN_TIME=YES.")
+                Text("iOS \(UIDevice.current.systemVersion) · Screen Time is compiled out of this build. S1 shielding, S5 and S7 need a build generated with BZ_SCREEN_TIME=YES.")
                     .font(.footnote)
             } header: { Text("Setup") }
             #else
@@ -42,7 +42,7 @@ struct DiagnosticsView: View {
             #endif
 
             Section {
-                #if !BZ_NO_SCREEN_TIME
+                #if BZ_SCREEN_TIME
                 Button("Shield picked apps (diagnostics store)") { log(DiagnosticsShield.shield(model.store)) }
                 #endif
                 Button("Load instagram.com in a test web view (shared store)") { probe = .init(url: "https://www.instagram.com/", store: .shared, ua: .webKitDefault) }
@@ -51,7 +51,7 @@ struct DiagnosticsView: View {
                 Button("Load youtube.com in a test web view (named store)") { probe = .init(url: "https://m.youtube.com/", store: .named, ua: .webKitDefault) }
                 Button("Open instagram.com in Safari") { UIApplication.shared.open(URL(string: "https://www.instagram.com/")!) }
                 Button("Open youtube.com in Safari") { UIApplication.shared.open(URL(string: "https://www.youtube.com/")!) }
-                #if !BZ_NO_SCREEN_TIME
+                #if BZ_SCREEN_TIME
                 Button("Clear diagnostics shields", role: .destructive) { DiagnosticsShield.clear(); log("diagnostics shields cleared") }
                 #endif
             } header: { Text("S1 · Shield bleed") } footer: {
@@ -86,7 +86,7 @@ struct DiagnosticsView: View {
                 Text("With Instagram shielded, have someone message you: does a notification arrive? Then start an S7 pass and repeat.")
             }
 
-            #if !BZ_NO_SCREEN_TIME
+            #if BZ_SCREEN_TIME
             Section {
                 Button("Set denyAppRemoval (diagnostics store)") { DiagnosticsShield.setDenyAppRemoval(true); log("denyAppRemoval = true") }
                 Button("Clear denyAppRemoval", role: .destructive) { DiagnosticsShield.setDenyAppRemoval(false); log("denyAppRemoval cleared") }
@@ -117,7 +117,7 @@ struct DiagnosticsView: View {
                 Text("Cold start: force-quit, launch, and read the “S6 first load” line. Content-process recovery is logged when it happens.")
             }
 
-            #if !BZ_NO_SCREEN_TIME
+            #if BZ_SCREEN_TIME
             Section {
                 Button("Start 5-min pass (backdated interval)") { startS7(backdate: true) }
                 Button("Start 5-min pass (exact interval — tests the 15-min minimum)") { startS7(backdate: false) }
@@ -145,7 +145,7 @@ struct DiagnosticsView: View {
             }
         }
         .navigationTitle("Diagnostics")
-        #if !BZ_NO_SCREEN_TIME
+        #if BZ_SCREEN_TIME
         .familyActivityPicker(isPresented: $pickerShown, selection: $selection)
         .onChange(of: selection) { _, new in
             do {

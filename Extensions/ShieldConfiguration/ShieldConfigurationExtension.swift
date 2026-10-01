@@ -1,4 +1,4 @@
-// UNVERIFIED: written on Linux, never compiled. Build on a Mac first (see PROGRESS.md).
+// Compiles on macOS (Xcode 27, iOS 27 SDK, 2026-10-01). Not yet run on a device (see PROGRESS.md).
 // Shield screens only appear on a real device (not the Simulator).
 import ManagedSettings
 import ManagedSettingsUI

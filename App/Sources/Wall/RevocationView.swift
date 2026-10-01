@@ -1,4 +1,4 @@
-// UNVERIFIED: written on Linux, never compiled. Build on a Mac first (see PROGRESS.md).
+// Compiles on macOS (Xcode 27, iOS 27 SDK, 2026-10-01). Not yet run on a device (see PROGRESS.md).
 import Core
 import Shielding
 import SwiftUI
@@ -37,7 +37,7 @@ struct RevocationView: View {
     }
 
     private func rebuild() async {
-        #if !BZ_NO_SCREEN_TIME && canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
+        #if BZ_SCREEN_TIME && canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         do {
             try await FamilyControlsAuthorization.request()
             model.reconcile(source: "revocation.rebuild")

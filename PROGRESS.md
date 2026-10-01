@@ -3,13 +3,18 @@
 Claude Code keeps this file current. Read it first in every session.
 
 ## Status
-Phase 0 code-complete on Linux (waiting on owner: build on a Mac + spike results).
+Phase 0 code-complete. Mac build verified 2026-10-01 (Xcode 27, iOS 27 SDK): both variants
+compile with no errors or source warnings, all tests pass, and the lite app signs with the owner's
+free Personal Team. Waiting on owner: install on the iPhone + spike results.
 Phase 1 in progress: recipes, rule engine, all five filter layers and their tests are written;
-the WebKit glue is UNVERIFIED.
+the WebKit glue compiles but hasn't run on a device.
 
 Test status (Linux, Swift 6.0.3 + Node 22):
 - `cd Packages/BreakZeroKit && swift test` → **62 tests pass** (Core, LiteWeb pure parts, Shielding with fakes).
 - `cd jstests && npm ci && npm test` → **27 tests pass** (route vectors shared with Swift, DOM filters, guard, canaries, autoplay).
+
+Test status (macOS, Xcode 27, iPhone 17 Pro Simulator iOS 26.2), `xcodebuild … CODE_SIGNING_ALLOWED=NO build test`:
+- **63 tests pass**: CoreTests 50, LiteWebTests 7, ShieldingTests 5, breakZeroTests 1.
 
 ## Phase 0 task plan
 - [x] P0.1 Read BRIEF/CLAUDE, draft `ARCHITECTURE.md`
@@ -43,11 +48,17 @@ Wall/Phase 2–3 logic already written and tested ahead of schedule (pure Core/S
 ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnforcer reconcile.
 
 ## Build switch
-- [x] `BZ_SCREEN_TIME` (YES/NO) build setting: NO = no Family Controls entitlement, Screen Time
-  extensions not embedded (built unsigned), Screen Time calls compiled out of the app
-  (`BZ_NO_SCREEN_TIME`). `xcodegen generate` on Linux confirms the settings resolve into the project
-  (app `CODE_SIGN_ENTITLEMENTS` now follows the switch). Xcode-side behavior UNVERIFIED; the manual
-  macOS CI job checks it.
+- [x] `BZ_SCREEN_TIME` is a **generate-time** switch (QUESTIONS #21, #22). Plain `xcodegen generate`
+  = lite app: no extension targets, no entitlements, Screen Time compiled out (no `BZ_SCREEN_TIME`
+  Swift flag). `BZ_SCREEN_TIME=YES xcodegen generate` adds `project-screen-time.yml` (3 extensions,
+  Family Controls + App Group, Swift flag).
+  Verified 2026-10-01:
+  - lite, Simulator: builds, tests pass, no `PlugIns`;
+  - lite, device (`generic/platform=iOS`, `DEVELOPMENT_TEAM=7DTC6L573G` free Personal Team,
+    `-allowProvisioningUpdates`): **signs and builds**, no `PlugIns`, entitlements = team defaults only;
+  - full, Simulator unsigned: builds, `PlugIns` holds 3 `.appex`, `-DBZ_SCREEN_TIME` passed.
+  The earlier build-setting version did leave `PlugIns` empty, but the free team rejected signing:
+  its profile can't carry the App Group (`application-groups` came back empty). Hence the fallback.
 
 ## Next
 1. Owner: `docs/ON_DEVICE_CHECKLIST.md` steps 1–14; report spike results.
@@ -55,27 +66,17 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
 3. Phase 2: onboarding (authorization → per-platform app picker → notification permission), pass request UI with wait screen.
 4. After S1–S7 results: revise ARCHITECTURE.md §7 decisions.
 
-## Unverified (written but never compiled or run)
-Build these first on the Mac, in this order:
-1. `project.yml` (generates on Linux; never opened in Xcode) — incl. the `BZ_SCREEN_TIME` switch:
-   check that `NO` really leaves `breakZero.app/PlugIns` empty (EXCLUDED_SOURCE_FILE_NAMES on an embed phase)
-2. `Packages/BreakZeroKit/Sources/LiteWeb/LiteWebController.swift`
-3. `Packages/BreakZeroKit/Sources/LiteWeb/LiteWebView.swift`
-4. `Packages/BreakZeroKit/Sources/Shielding/ScreenTime.swift` (iOS-only; also needs device testing)
-5. `App/Sources/BreakZeroApp.swift`
-6. `App/Sources/AppModel.swift`
-7. `App/Sources/RootView.swift`
-8. `App/Sources/Wall/WallView.swift`
-9. `App/Sources/Wall/RevocationView.swift`
-10. `App/Sources/Diagnostics/DiagnosticsView.swift`
-11. `Extensions/ShieldConfiguration/ShieldConfigurationExtension.swift`
-12. `Extensions/ShieldAction/ShieldActionExtension.swift`
-13. `Extensions/DeviceActivityMonitor/DeviceActivityMonitorExtension.swift`
-14. `AppTests/AppTests.swift`
+## Unverified
+Every Swift file now compiles on macOS (items 1–14 of the old list; the extensions in the full variant
+only). Still never **run** on a device:
+- `LiteWebController.swift`, `LiteWebView.swift` (whole WebKit glue: rule lists, scripts, downloads,
+  restore, badges) — owner checklist §D, works with the free-team lite build;
+- `ScreenTime.swift`, `RevocationView`, Diagnostics S1/S5/S7, the three extensions — need a paid team
+  with Family Controls (full build);
+- `AppModel`, `RootView`, `WallView`, `BreakZeroApp`: ran only as far as the 1 app unit test.
 
-Compiled and tested on Linux (Darwin-only branches inside them are UNVERIFIED):
-`Core/*` (except the `#if canImport(Darwin)` paths in `TrustedClock.swift` and `SharedStore.swift`),
-`LiteWeb/LiteWeb.swift`, `Shielding/Shielding.swift`, `bz-filter.js`.
+Compiled and tested on Linux and macOS: `Core/*`, `LiteWeb/LiteWeb.swift`, `Shielding/Shielding.swift`,
+`bz-filter.js`.
 
 ## Blockers / blocked commands (log)
 - `download.swift.org` is denied by the session's egress policy (403). Swift was installed instead from

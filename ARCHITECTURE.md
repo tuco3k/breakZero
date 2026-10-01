@@ -50,16 +50,27 @@ owner reports Phase 0 results from a real iPhone (see `docs/ON_DEVICE_CHECKLIST.
 XcodeGen references one local package and links products per target. Fewer `Package.swift` files to
 keep in sync, and `swift test` at one path runs every Linux-testable test.
 
-### Building without Screen Time (`BZ_SCREEN_TIME`)
-One build setting in `project.yml`. `YES` (default) is the full app. `NO`:
-- `CODE_SIGN_ENTITLEMENTS` → `App/breakZero-NoScreenTime.entitlements` (App Group only, no Family Controls);
-- `EXCLUDED_SOURCE_FILE_NAMES` lists the three `.appex` bundles, so they aren't embedded in the app;
-  the extension targets still compile (they're target dependencies) but with `CODE_SIGNING_ALLOWED = NO`;
-- `SWIFT_ACTIVE_COMPILATION_CONDITIONS` gains `BZ_NO_SCREEN_TIME`; app code gates every Screen Time
-  call on it (`AppModel.reconcile`, `RevocationView`, Diagnostics S1/S5/S7 and the picker).
-The `BreakZeroKit` package is unaffected (packages don't see app compilation conditions); its Screen
-Time code is simply never called. Both entitlements files are checked in; the app target has no
-XcodeGen `entitlements:` key because that would pin `CODE_SIGN_ENTITLEMENTS` to one file.
+### Building without Screen Time (`BZ_SCREEN_TIME`, generate time)
+`project.yml` alone is the **lite app**: the app target and its tests, no Screen Time extensions, no
+entitlements at all (a free Personal Team can sign it), and app code built without the
+`BZ_SCREEN_TIME` Swift flag. `BZ_SCREEN_TIME=YES xcodegen generate` also includes
+`project-screen-time.yml`, which adds:
+- the three extension targets and the app's dependencies on them (so they're embedded);
+- `CODE_SIGN_ENTITLEMENTS = App/breakZero.entitlements` (Family Controls Development + App Group);
+- `BZ_SCREEN_TIME` in `SWIFT_ACTIVE_COMPILATION_CONDITIONS`; app code gates every Screen Time call
+  on it (`AppModel.reconcile`, `RevocationView`, Diagnostics S1/S5/S7 and the picker).
+
+Why generate time, not a build setting: the first version was a `BZ_SCREEN_TIME` build setting that
+kept the extension targets and left them out via `EXCLUDED_SOURCE_FILE_NAMES`. That did leave
+`PlugIns` empty, but a free team still couldn't sign the app: its profile can't carry an App Group.
+Removing the targets entirely is simpler and leaves nothing to sign but the app.
+
+XcodeGen constraints behind the shape: an unset variable disables an include (no default syntax),
+so unset means lite; and when merging, a scalar in `project.yml` wins over the include, so the
+include only adds keys `project.yml` leaves unset (hence a positive `BZ_SCREEN_TIME` flag rather than
+`BZ_NO_SCREEN_TIME`). The `BreakZeroKit` package is the same in both (packages don't see app
+compilation conditions); in the lite app its Screen Time code is simply never called. Without the
+App Group the app keeps its data in Application Support (`AppModel.init` fallback).
 
 ### Platform split (so logic is testable on Linux)
 - `Core` imports only `Foundation`. No UIKit/WebKit/CryptoKit at all. Anything Apple-only that Core
