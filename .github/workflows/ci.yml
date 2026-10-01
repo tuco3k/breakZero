@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      ios_build:
+        description: "Also build the iOS app on macOS (uses paid macOS minutes on private repos)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  core-tests:
+    name: Swift package tests (Linux)
+    runs-on: ubuntu-latest
+    container: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test
+        working-directory: Packages/BreakZeroKit
+        run: swift test
+
+  script-tests:
+    name: Filter script tests (Node + jsdom)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: npm ci && npm test
+        working-directory: jstests
+        run: |
+          npm ci
+          npm test
+
+  ios-build:
+    name: iOS build + tests (Simulator, manual)
+    # Manual only: macOS minutes cost money on private repos (QUESTIONS.md Q16).
+    if: github.event_name == 'workflow_dispatch' && inputs.ios_build
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build and test
+        run: |
+          set -o pipefail
+          xcodebuild -scheme breakZero \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            CODE_SIGNING_ALLOWED=NO build test | tail -200

@@ -1,0 +1,54 @@
+# Security model of the wall
+
+Threat: **you, in a weak moment**, with your own unlocked phone. Not a remote attacker. The goal is
+to make loosening slow and deliberate, and to be honest about what can't be prevented.
+
+Status: **nothing below has been tested on a device yet.** Each row gets a result and a test date
+from Spike S5 (`docs/ON_DEVICE_CHECKLIST.md` step 12). Until then, rows are hypotheses from BRIEF §3.
+
+## Escape hatches
+
+| # | Path | iOS < 26.4 | iOS 26.4+ with Screen Time passcode | Tested (date, iOS) |
+|---|---|---|---|---|
+| 1 | Settings › Screen Time › Apps with Screen Time Access › breakZero off | Face ID / device passcode is enough → wall down | Screen Time passcode required | — |
+| 2 | Settings › Apps › breakZero › Screen Time toggle | Face ID enough | Reported to still ask only for Face ID on 26.4 — must test | — |
+| 3 | Delete breakZero | Blocked by `denyAppRemoval` while authorized (not guaranteed under `.individual`) | Same | — |
+| 4 | Forgot Screen Time passcode → reset with Apple Account | n/a | Works for whoever owns the recovery Apple Account → have a trusted person use **their** account | — |
+| 5 | Change date/time forward to end a cooldown | Doesn't work: cooldowns use trusted elapsed time (below) | Same; check whether the passcode locks "Set Automatically" | — |
+| 6 | Reboot to reset uptime | Gains at most 1 hour per reboot (below) | Same | — |
+| 7 | Use Safari / another browser for the platforms | Not blocked unless web domains are shielded (max 50 tokens) | Same | — |
+| 8 | Use another device | Not preventable | Same | — |
+
+When the wall comes down (1, 2), iOS lifts all shields immediately and breakZero isn't told while
+in the background. On next launch (and in every extension callback) breakZero re-checks
+authorization, records when the wall was last verified intact, and shows a calm screen offering to
+rebuild it. No shaming, no partner notifications (that would need a server).
+
+## Cooldowns and the clock
+Loosening changes wait for the cooldown, measured as **trusted elapsed time**
+(`Core/TrustedClock.swift`), recorded at every check-in (app launch/foreground, every extension
+callback):
+
+- Within one boot: credit `min(wall-clock delta, monotonic uptime delta)`. Uptime includes sleep
+  (`CLOCK_MONOTONIC` on Darwin) and can't be changed by the user, so moving the clock forward
+  credits nothing; moving it back only slows you down.
+- Across a reboot: uptime restarts and the gap before the reboot is unknowable. We credit at most
+  the new boot's uptime **plus 1 hour**. Residual risk: an attacker gains ≤ 1 hour per reboot; a
+  legitimate user may wait up to (gap − 1 h) longer than the cooldown after a reboot.
+- Every detected jump is logged locally (`ElapsedLedger.tamperEvents`).
+- Hard Lock ends only when **both** the wall clock passes its date **and** trusted time has elapsed.
+- A native pass ends at its wall-clock end **or** when its duration of trusted time has passed,
+  whichever is first, so setting the clock back can't stretch it. The daily cap counts passes
+  "started today" plus any whose start is in the future.
+
+## Defense in depth
+- Pending changes apply from the DeviceActivityMonitor extension at their due time, so they land
+  without the app; every launch reconciles too.
+- A corrupt settings file never reads as "no wall": updates fail instead of resetting.
+- Separate named `ManagedSettingsStore`s; Diagnostics uses its own store.
+
+## Recommended setup ("Lock it in", Phase 3)
+1. Keep Date & Time on *Set Automatically*.
+2. Have a trusted person set the Screen Time passcode and enter **their own** Apple Account for
+   recovery.
+3. Turn on *Block deleting breakZero*.
