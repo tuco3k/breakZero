@@ -211,79 +211,94 @@ out mid-video) is caught within about a second.
   `watchdogCheck` (Node): every step the guard redirects must also be a watchdog violation if the
   page somehow got there, and every allowed step must pass.
 
-## 4c. "Old Instagram": friends-only feed and stories (design, 2026-10-01)
+## 4c. Feed rules: mutuals-only feed and stories (design rev. 2, 2026-10-01)
 
-Goal: the home feed and the stories tray show only people on the user's Friends list. Brands,
-creators, suggestions and ads are gone. Everything else (DMs, search, posting, notifications, any
-profile you tap on purpose) is untouched.
+Revision of "Old Instagram" after owner testing. The normal Instagram feed (Following variant) and
+stories row work as usual, except people outside a **rule** are hidden. "Old Instagram" is now a
+preset of these rules. The manual list is for exceptions only.
 
-**Friends list** (`PlatformSettings.friends`, part of `WallPolicy`, so it goes through the ratchet).
-Lower-cased Instagram usernames (`^[a-z0-9._]{1,30}$`), at most 2000. On-device only, like the rest of
-the policy. Old Instagram is on when the toggle `ig.friendsOnly` (default ON) is on **and** the list is
-non-empty, so it turns itself on with the first friend.
+**Rules** (`PlatformSettings.feedRules`, in `WallPolicy`, so they go through the ratchet)
+- *Show only*, separately for the feed and for stories: `everyone` (everyone I follow) / `mutuals`
+  (default) / `myList` / `closeFriends`.
+- `never` (hide everywhere) and `always` (show even if the rule doesn't match) lists.
+- Precedence: never > always > show-only rule. Suggestions and ads are always hidden.
+- `profileStories` (default ON): a story opened from that person's profile plays (one person, no
+  auto-advance into someone else). OFF: you stay on their profile with a short message. Never-show
+  beats it. Profiles you open on purpose always load; the gate never bounces you to the feed from a
+  profile.
+- The old `friends` list becomes `myList`. An existing non-empty list keeps the rule on `myList` (no
+  silent widening); fresh setups default to `mutuals`.
 
 | Change | Kind |
 |---|---|
-| Add a friend | loosening (waits the cooldown); **tightening** when the list was empty (it switches the filter on) |
-| Remove a friend | tightening (instant); **loosening** when it's the last one (it switches the filter off) |
-| Either, with `ig.friendsOnly` off | neutral |
-| `ig.friendsOnly` / `ig.forceFollowing` off | loosening (ordinary toggles) |
+| Rule → `everyone`, or between `mutuals`/`myList`/`closeFriends` | widening (cooldown) |
+| Rule `everyone` → anything narrower | narrowing (instant) |
+| Add to `always`, remove from `never`, add to `myList` (when a rule uses it), profile stories ON | widening |
+| The opposite of each | narrowing |
+| Feed rules off (`ig.friendsOnly`), Following feed off | widening |
+| Import / re-sync / re-import mutuals | data, not a rule change: no cooldown |
 
-**Building the list (setup).** The Friends screen arms a *scan* for 30 minutes and opens the Instagram
-tab. The user opens their own Followers and Following pages (and, if the spike works, Close Friends)
-and scrolls. While armed, the page script reads the usernames from profile links **already in the
-DOM** on exactly those routes (`/<owner>/followers/`, `/<owner>/following/`, `/accounts/close_friends/`)
-and posts them to native. It never fetches anything: no API calls, no extra requests, no scrolling
-for the user. Native keeps a `FriendsScanState` (`ig-friends-scan.json`, separate from the policy):
-owner, followers seen, following seen, close friends seen. Mutuals (followers ∩ following of the
-same owner) and close friends become **suggestions**; the user adds them (one by one or "Add all").
-The collector is read-only, so it also runs in the `/accounts/` allow zone. Page scripts can post the
-same message; the worst they can do is add a suggestion the user then has to accept and wait for.
+**People data** (`PeopleData`, own file `ig-people.json`, never in the policy, never leaves the
+phone): followers, following, close friends, owner, `updatedAt`, source. Mutuals = followers ∩
+following. A full refresh replaces the lists, so people removed disappear at once; newly mutual
+people appear only after a refresh. Until there is data, a rule that needs it (mutuals, close
+friends) isn't applied (the screen says so); an import with no following list is rejected, so data
+never goes back to empty.
 
-**Feed** (route `^/$`, recipe `friendsFilter`). All selectors and limits are recipe data.
-- *Default deny at documentStart:* CSS hides every post container (`article`) that we haven't marked
-  `data-bz-fr="ok"`. A broken script therefore shows an empty feed, never a stranger's post.
-- The tick (MutationObserver → rAF, so before paint) re-checks every post each time: the author is the
-  first profile link in the post (from `href`, never text). Friend → mark ok; otherwise leave hidden.
-  Re-checking every time matters because React reuses post nodes for new content.
-- Suggestions and sponsored posts: non-friend authors, so hidden anyway; the suggested-people and
-  sponsored rules are also forced on while Old Instagram is active.
-- *Caught up:* after `caughtUpAfter` (20) hidden posts in a row, or when no new post arrived for 4 s
-  and the last one is hidden, we insert a "You're all caught up" card after the last friend post and
-  hide everything after it inside `<main>` (the rest of the list and Instagram's loader), so loading
-  stops. Cleared on the next route change or reload.
-- *Force Following* (`ig.forceFollowing`, default ON): on `/` without `variant=following` (full
-  load, logo/home tap via `pushState`, back via `popstate`) the script goes to `/?variant=following`.
-  At most 3 times per 30 s; then it gives up and logs it. The friends filter doesn't depend on it:
-  it works the same on the normal feed (spike S9 says whether the variant sticks).
+How it's filled (no hidden API requests of our own):
+1. **Instagram data export** (recommended): in-app steps (Accounts Center › Your information and
+   permissions › Download your information › only "Followers and following", JSON). Import the
+   `.zip` or the `.json` files from Files. `ExportImporter` reads zip entries itself (central
+   directory + a small pure-Swift inflate, so it runs on Linux too), takes only
+   `followers*.json`, `following.json` and `close_friends.json`, and pulls usernames from
+   `string_list_data[].value`, `title` or the `href`. Tolerant of format drift; rejects HTML exports
+   with a clear message.
+2. **Auto-scroll sync** (on the user's tap): the Instagram tab visibly scrolls the user's own
+   Followers, then Following, at a slow pace (one screen every 2–4 s, a longer pause every ~12
+   screens), reading usernames from profile links as they load. At most 800 new names per list per
+   session; progress is saved and the next session continues. Stops at once on a challenge, login,
+   checkpoint or any dialog without the list, and when nothing new loads (stalled). `SyncSession`
+   (Core) owns the plan, caps, resume and stop reasons; the page only scrolls and reports.
+3. **Manual scrolling**: the old armed scan, kept as a last resort.
+Freshness: "Mutuals last updated N days ago"; after 30 days a reminder with *Re-sync* / *Re-import*.
 
-**Stories**
-- *Viewer gate* (`/stories/<user>/…`): `ActiveRecipe` generates a route rule `ig.friends.storyGate`
-  (`^/stories/(?!(?:friend1|friend2|highlights)(?:/|$))[^/]+(?:/|$)` → redirect to the feed). Being an
-  ordinary route rule, every existing layer enforces it with no new engine code: the navigation
-  delegate (full loads never start), the `pushState` guard (synchronous, before the next frame), the
-  native backstop, and both watchdogs. In the page, a gate redirect first tries to **skip** to the next
-  friend in the tray order we saw on the feed; with none left, it closes the viewer (feed).
-- *Belt and braces in the viewer:* CSS hides the viewer (`body` `visibility:hidden`) on story routes
-  until the script has checked the current path and the author shown in the viewer header (profile
-  link `href`). It marks `data-bz-story-ok=<path>`; any URL or DOM change clears it again. A
-  non-friend author (also in highlights, where the URL has no username) → skip/close.
-- *Tray:* tray items whose `href` is `/stories/<user>/` are hidden unless the user is a friend
-  (default deny via CSS, same `data-bz-fr` mark). Tray items without an `href` can't be checked; the
-  viewer gate still stops them from playing. Verify on device.
+**Enforcement** (what changed from rev. 1)
+- `ActiveRecipe.friends` now carries per-surface allowed sets (`feed`, `stories`: nil = no
+  audience filter), the `never` set and `profileStories`. Native computes them:
+  `(base(rule) ∪ always) − never`.
+- The story gate is engine code instead of a generated regex (it needs context: the profile you came
+  from). Same algorithm in `RuleEngine` and `bz-filter.js`, checked by shared route vectors:
+  allowed user → allow; came from `/<user>/` with profile stories on → allow and remember the user
+  (`NavigationState.storyUser`); a later move to someone else → back to that user's profile; from a
+  profile with profile stories off, or never-shown → stay on the profile; from the feed → close (the
+  page first tries the next allowed person in the tray).
+- Feed: default-deny CSS as before; a post shows once its author is allowed. Each shown post gets a
+  small "hide" button (our own element over the post's corner) that adds the author to `never`
+  (narrowing, instant). In the story viewer the header strip offers "Hide @user".
+- The page reports hidden authors (names only, to native, never logged); the Instagram strip shows a
+  pill "Mutuals only · 12 hidden" that opens the recently hidden list with *Always show* / *Never
+  show*.
 
-**Canaries** (Layer 5, on the feed): `ig.canary.friendsPost` — a post link (`/p/…`, `/reel/…`) visible
-in `<main>` outside a checked friend post (e.g. Instagram stopped using `article`, so default deny no
-longer matches); `ig.canary.friendsStory` — a visible `/stories/<user>/` link to a non-friend. Either
-blurs the offender and shows "Filter needs an update".
+**Unchanged:** allow zones, search, profiles, `/p/…`, notifications, canaries, caught-up card,
+forced Following feed (S9 PASS on device), Close Friends page readable (S10 PASS on device).
 
-**Never affected:** allow zones (DMs, login, settings, compose), search, profile pages (including
-non-friends you tap), a post or reel opened on purpose (`/p/…`), notifications. The feed filter only
-runs on `^/$`; the story gate only on `/stories/`.
+## 4d. Limit modes (2026-10-01)
+Minutes are any value 1–240 (stepper), not presets. Short-form: a shared budget across platforms,
+a budget per platform (Reels / Shorts / Spotlight), or both. Daily time: per app, an overall cap
+across apps, or both. Every limit that is set applies; the tightest wins. Ratchet as before:
+lowering or adding a limit is instant, raising or removing waits. `LimitStatus.shortForm` becomes
+per platform.
 
-**Spikes (one tap each in Diagnostics):** S9 loads `/?variant=following` in an unfiltered probe, then
-taps the home link and goes back, and logs whether the variant stayed and whether it stayed on mobile
-web. S10 opens `/accounts/close_friends/` and logs only counts (rows, checkboxes, checked).
+## 4e. Accidental wall activation (2026-10-01)
+- Turning on the Lock, a Hard Lock or Block-deleting asks first: plain words on what gets locked,
+  the cooldown, that loosening will take that long (and, in the Screen Time build, that the app
+  can't be deleted). Confirm by press-and-hold.
+- **Grace period** (default 10 min, setting can only be shortened): right after the Lock goes on,
+  the Wall tab shows a countdown with *Undo*, which turns the Lock off instantly. It ends at the
+  earliest of: wall-clock elapsed, uptime elapsed, a reboot, or the clock moving back.
+- Debug builds only: Diagnostics › *Reset all breakZero data* (policy, lock, lists, limits, ledgers,
+  web data), then the app closes. `#if DEBUG`; `scripts/check-release-no-debug-reset.sh` builds
+  Release and fails if the reset's marker string is in the binary.
 
 ## 5. Network policy
 
