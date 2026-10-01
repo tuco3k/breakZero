@@ -37,7 +37,7 @@ struct RevocationView: View {
     }
 
     private func rebuild() async {
-        #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
+        #if !BZ_NO_SCREEN_TIME && canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         do {
             try await FamilyControlsAuthorization.request()
             model.reconcile(source: "revocation.rebuild")

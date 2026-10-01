@@ -55,3 +55,15 @@ jobs:
           xcodebuild -scheme breakZero \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
             CODE_SIGNING_ALLOWED=NO build test | tail -200
+      - name: Check the BZ_SCREEN_TIME switch (YES embeds 3 extensions, NO embeds none)
+        run: |
+          set -euo pipefail
+          for mode in YES NO; do
+            xcodebuild -scheme breakZero -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath "build/st-$mode" CODE_SIGNING_ALLOWED=NO BZ_SCREEN_TIME=$mode build | tail -20
+            app=$(find "build/st-$mode" -name breakZero.app -type d -path '*Debug-iphonesimulator*' | head -1)
+            count=$(find "$app" -maxdepth 2 -name '*.appex' | wc -l | tr -d ' ')
+            echo "BZ_SCREEN_TIME=$mode → $count extensions embedded"
+            if [ "$mode" = YES ] && [ "$count" != 3 ]; then exit 1; fi
+            if [ "$mode" = NO ] && [ "$count" != 0 ]; then exit 1; fi
+          done

@@ -42,6 +42,13 @@ Test status (Linux, Swift 6.0.3 + Node 22):
 Wall/Phase 2–3 logic already written and tested ahead of schedule (pure Core/Shielding):
 ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnforcer reconcile.
 
+## Build switch
+- [x] `BZ_SCREEN_TIME` (YES/NO) build setting: NO = no Family Controls entitlement, Screen Time
+  extensions not embedded (built unsigned), Screen Time calls compiled out of the app
+  (`BZ_NO_SCREEN_TIME`). `xcodegen generate` on Linux confirms the settings resolve into the project
+  (app `CODE_SIGN_ENTITLEMENTS` now follows the switch). Xcode-side behavior UNVERIFIED; the manual
+  macOS CI job checks it.
+
 ## Next
 1. Owner: `docs/ON_DEVICE_CHECKLIST.md` steps 1–14; report spike results.
 2. Phase 1 remaining items above (downloads, interactionState restore, unread counts).
@@ -50,7 +57,8 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
 
 ## Unverified (written but never compiled or run)
 Build these first on the Mac, in this order:
-1. `project.yml` (generates on Linux; never opened in Xcode)
+1. `project.yml` (generates on Linux; never opened in Xcode) — incl. the `BZ_SCREEN_TIME` switch:
+   check that `NO` really leaves `breakZero.app/PlugIns` empty (EXCLUDED_SOURCE_FILE_NAMES on an embed phase)
 2. `Packages/BreakZeroKit/Sources/LiteWeb/LiteWebController.swift`
 3. `Packages/BreakZeroKit/Sources/LiteWeb/LiteWebView.swift`
 4. `Packages/BreakZeroKit/Sources/Shielding/ScreenTime.swift` (iOS-only; also needs device testing)
@@ -77,5 +85,8 @@ Compiled and tested on Linux (Darwin-only branches inside them are UNVERIFIED):
   `resolute` suite (for Swift 6.2); bind-mounting the repo into the chroot; `add_repo` with push access.
   Tests run by copying the repo into the chroot (`rsync`, no mounts) and running `swift test` there.
 - Initial `git push` failed (403, no GitHub App access). Owner fixed access; pushes work now.
+- After a container restart the chroot had no `/proc` (Foundation tools crash with SIGILL). Re-ran the
+  chroot's original setup step `mount -t proc proc /opt/swiftroot/proc` (not blocked; part of the
+  original setup, not a workaround for a block).
 - Rule from owner: if a command gets blocked, don't try privileged workarounds (e.g. mounts) — log it
   here and move on.

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Used when BZ_SCREEN_TIME=YES (project.yml). The Development Family Controls entitlement works
+     for on-device testing without Apple approval; Distribution needs approval
+     (docs/ON_DEVICE_CHECKLIST.md step 1). -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.developer.family-controls</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(BZ_APP_GROUP)</string>
+	</array>
+</dict>
+</plist>

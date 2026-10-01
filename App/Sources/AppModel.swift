@@ -78,7 +78,7 @@ final class AppModel {
 
     /// Launch / foreground / after any change: the same idempotent routine the extensions run.
     func reconcile(source: String) {
-        #if canImport(ManagedSettings) && canImport(FamilyControls) && canImport(DeviceActivity)
+        #if !BZ_NO_SCREEN_TIME && canImport(ManagedSettings) && canImport(FamilyControls) && canImport(DeviceActivity)
         WallEnforcer.live(store: store, recipes: Array(recipes.values)).reconcile(source: source)
         #else
         try? store.update(AppGroup.File.lock, default: LockState()) { (lock: inout LockState) in

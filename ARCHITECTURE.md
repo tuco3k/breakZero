@@ -50,6 +50,17 @@ owner reports Phase 0 results from a real iPhone (see `docs/ON_DEVICE_CHECKLIST.
 XcodeGen references one local package and links products per target. Fewer `Package.swift` files to
 keep in sync, and `swift test` at one path runs every Linux-testable test.
 
+### Building without Screen Time (`BZ_SCREEN_TIME`)
+One build setting in `project.yml`. `YES` (default) is the full app. `NO`:
+- `CODE_SIGN_ENTITLEMENTS` → `App/breakZero-NoScreenTime.entitlements` (App Group only, no Family Controls);
+- `EXCLUDED_SOURCE_FILE_NAMES` lists the three `.appex` bundles, so they aren't embedded in the app;
+  the extension targets still compile (they're target dependencies) but with `CODE_SIGNING_ALLOWED = NO`;
+- `SWIFT_ACTIVE_COMPILATION_CONDITIONS` gains `BZ_NO_SCREEN_TIME`; app code gates every Screen Time
+  call on it (`AppModel.reconcile`, `RevocationView`, Diagnostics S1/S5/S7 and the picker).
+The `BreakZeroKit` package is unaffected (packages don't see app compilation conditions); its Screen
+Time code is simply never called. Both entitlements files are checked in; the app target has no
+XcodeGen `entitlements:` key because that would pin `CODE_SIGN_ENTITLEMENTS` to one file.
+
 ### Platform split (so logic is testable on Linux)
 - `Core` imports only `Foundation`. No UIKit/WebKit/CryptoKit at all. Anything Apple-only that Core
   needs is a protocol (`SignatureVerifier`, `ClockSource`) implemented elsewhere.

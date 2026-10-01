@@ -28,6 +28,13 @@ is **UNVERIFIED** (see `PROGRESS.md`). Expect a round of compile fixes in step 4
    - Then: `xcodebuild -scheme breakZero -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO build test`
    - Fix compile errors in the UNVERIFIED files (start with `LiteWebController.swift`,
      `ScreenTime.swift`, then `App/`, then `Extensions/`). Report anything structural.
+   - **No Family Controls entitlement yet** (or signing trouble with the extensions)? Set
+     `BZ_SCREEN_TIME: NO` in `project.yml` (or pass `BZ_SCREEN_TIME=NO` to `xcodebuild`). That
+     build has no Family Controls entitlement, leaves the three Screen Time extensions out of the
+     app, and compiles out every Screen Time call, so you can run the lite views (section D)
+     right away. Spikes S1 shielding, S5 and S7 need `YES`. To confirm the switch works, run the
+     CI workflow manually with *ios_build* ticked (it checks 3 extensions embedded vs 0), or look
+     inside the built `breakZero.app/PlugIns`.
 5. Run on your iPhone (Debug, Development signing). In the app, open **Wall** and tap the
    version line at the bottom **5 times** to open **Diagnostics**.
 6. Diagnostics → **Request Screen Time authorization**. Report: did the system sheet appear and
