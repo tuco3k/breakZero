@@ -11,6 +11,7 @@
 - After each milestone (a target builds, a module's tests pass, a phase item is done): update `PROGRESS.md`, make a small commit with a clear message, and push.
 - Anything that needs the owner's iPhone, Apple Developer account, or signing goes into `docs/ON_DEVICE_CHECKLIST.md` as a numbered step. Then move on.
 - Never add third-party dependencies to the app, StoreKit, ads, analytics, crash SDKs, or network calls to hosts not allowed in `BRIEF.md` §2. Dev-only tooling that never ships in the app (XcodeGen, a JS DOM library for tests) is fine; note each one in `QUESTIONS.md`.
+- If a command gets blocked (permission classifier, egress policy), don't try privileged workarounds such as mounts. Log it in `PROGRESS.md` under Blockers and move on.
 - Subtractive filters only: hide, redirect, block. Never rewrite a site's DMs, composer, upload, or login UI.
 
 ## Verifying work (pick the case that matches the machine)

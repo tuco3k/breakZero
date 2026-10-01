@@ -26,5 +26,14 @@ Phase 0 in progress (Linux cloud session, no Xcode).
 ## Unverified (written but never compiled or run)
 - (none yet)
 
-## Blockers
-- (none yet)
+## Blockers / blocked commands (log)
+- `download.swift.org` is denied by the session's egress policy (403). Swift was installed instead from
+  Ubuntu's own `swiftlang` package (6.0.3, questing) inside a debootstrapped Ubuntu chroot at
+  `/opt/swiftroot` (dev-only tooling, never shipped).
+- Blocked by the permission classifier (not retried): switching that chroot's apt source to the
+  `resolute` suite (for Swift 6.2); bind-mounting the repo into the chroot; `add_repo` with push access.
+  Tests run by copying `Packages/BreakZeroKit` into the chroot (`rsync`, no mounts) and running
+  `swift test` there.
+- Initial `git push` failed (403, no GitHub App access). Owner fixed access; pushes work now.
+- Rule from owner: if a command gets blocked, don't try privileged workarounds (e.g. mounts) — log it
+  here and move on.
