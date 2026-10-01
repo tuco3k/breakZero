@@ -211,6 +211,80 @@ out mid-video) is caught within about a second.
   `watchdogCheck` (Node): every step the guard redirects must also be a watchdog violation if the
   page somehow got there, and every allowed step must pass.
 
+## 4c. "Old Instagram": friends-only feed and stories (design, 2026-10-01)
+
+Goal: the home feed and the stories tray show only people on the user's Friends list. Brands,
+creators, suggestions and ads are gone. Everything else (DMs, search, posting, notifications, any
+profile you tap on purpose) is untouched.
+
+**Friends list** (`PlatformSettings.friends`, part of `WallPolicy`, so it goes through the ratchet).
+Lower-cased Instagram usernames (`^[a-z0-9._]{1,30}$`), at most 2000. On-device only, like the rest of
+the policy. Old Instagram is on when the toggle `ig.friendsOnly` (default ON) is on **and** the list is
+non-empty, so it turns itself on with the first friend.
+
+| Change | Kind |
+|---|---|
+| Add a friend | loosening (waits the cooldown); **tightening** when the list was empty (it switches the filter on) |
+| Remove a friend | tightening (instant); **loosening** when it's the last one (it switches the filter off) |
+| Either, with `ig.friendsOnly` off | neutral |
+| `ig.friendsOnly` / `ig.forceFollowing` off | loosening (ordinary toggles) |
+
+**Building the list (setup).** The Friends screen arms a *scan* for 30 minutes and opens the Instagram
+tab. The user opens their own Followers and Following pages (and, if the spike works, Close Friends)
+and scrolls. While armed, the page script reads the usernames from profile links **already in the
+DOM** on exactly those routes (`/<owner>/followers/`, `/<owner>/following/`, `/accounts/close_friends/`)
+and posts them to native. It never fetches anything: no API calls, no extra requests, no scrolling
+for the user. Native keeps a `FriendsScanState` (`ig-friends-scan.json`, separate from the policy):
+owner, followers seen, following seen, close friends seen. Mutuals (followers ∩ following of the
+same owner) and close friends become **suggestions**; the user adds them (one by one or "Add all").
+The collector is read-only, so it also runs in the `/accounts/` allow zone. Page scripts can post the
+same message; the worst they can do is add a suggestion the user then has to accept and wait for.
+
+**Feed** (route `^/$`, recipe `friendsFilter`). All selectors and limits are recipe data.
+- *Default deny at documentStart:* CSS hides every post container (`article`) that we haven't marked
+  `data-bz-fr="ok"`. A broken script therefore shows an empty feed, never a stranger's post.
+- The tick (MutationObserver → rAF, so before paint) re-checks every post each time: the author is the
+  first profile link in the post (from `href`, never text). Friend → mark ok; otherwise leave hidden.
+  Re-checking every time matters because React reuses post nodes for new content.
+- Suggestions and sponsored posts: non-friend authors, so hidden anyway; the suggested-people and
+  sponsored rules are also forced on while Old Instagram is active.
+- *Caught up:* after `caughtUpAfter` (20) hidden posts in a row, or when no new post arrived for 4 s
+  and the last one is hidden, we insert a "You're all caught up" card after the last friend post and
+  hide everything after it inside `<main>` (the rest of the list and Instagram's loader), so loading
+  stops. Cleared on the next route change or reload.
+- *Force Following* (`ig.forceFollowing`, default ON): on `/` without `variant=following` (full
+  load, logo/home tap via `pushState`, back via `popstate`) the script goes to `/?variant=following`.
+  At most 3 times per 30 s; then it gives up and logs it. The friends filter doesn't depend on it:
+  it works the same on the normal feed (spike S9 says whether the variant sticks).
+
+**Stories**
+- *Viewer gate* (`/stories/<user>/…`): `ActiveRecipe` generates a route rule `ig.friends.storyGate`
+  (`^/stories/(?!(?:friend1|friend2|highlights)(?:/|$))[^/]+(?:/|$)` → redirect to the feed). Being an
+  ordinary route rule, every existing layer enforces it with no new engine code: the navigation
+  delegate (full loads never start), the `pushState` guard (synchronous, before the next frame), the
+  native backstop, and both watchdogs. In the page, a gate redirect first tries to **skip** to the next
+  friend in the tray order we saw on the feed; with none left, it closes the viewer (feed).
+- *Belt and braces in the viewer:* CSS hides the viewer (`body` `visibility:hidden`) on story routes
+  until the script has checked the current path and the author shown in the viewer header (profile
+  link `href`). It marks `data-bz-story-ok=<path>`; any URL or DOM change clears it again. A
+  non-friend author (also in highlights, where the URL has no username) → skip/close.
+- *Tray:* tray items whose `href` is `/stories/<user>/` are hidden unless the user is a friend
+  (default deny via CSS, same `data-bz-fr` mark). Tray items without an `href` can't be checked; the
+  viewer gate still stops them from playing. Verify on device.
+
+**Canaries** (Layer 5, on the feed): `ig.canary.friendsPost` — a post link (`/p/…`, `/reel/…`) visible
+in `<main>` outside a checked friend post (e.g. Instagram stopped using `article`, so default deny no
+longer matches); `ig.canary.friendsStory` — a visible `/stories/<user>/` link to a non-friend. Either
+blurs the offender and shows "Filter needs an update".
+
+**Never affected:** allow zones (DMs, login, settings, compose), search, profile pages (including
+non-friends you tap), a post or reel opened on purpose (`/p/…`), notifications. The feed filter only
+runs on `^/$`; the story gate only on `/stories/`.
+
+**Spikes (one tap each in Diagnostics):** S9 loads `/?variant=following` in an unfiltered probe, then
+taps the home link and goes back, and logs whether the variant stayed and whether it stayed on mobile
+web. S10 opens `/accounts/close_friends/` and logs only counts (rows, checkboxes, checked).
+
 ## 5. Network policy
 
 `NetworkPolicy` is the only type allowed to create `URLRequest`s for `URLSession`. A unit test scans
