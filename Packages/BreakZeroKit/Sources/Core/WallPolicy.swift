@@ -61,6 +61,9 @@ public struct WallPolicy: Codable, Sendable, Equatable {
     public var shieldPlatforms: [String: Platform]
     /// Daily time limits, the shared short-form budget and schedules. All off by default.
     public var limits: LimitsPolicy
+    /// After the Lock goes on, it can be undone instantly for this long. Can only be shortened.
+    public var lockGraceSeconds: TimeInterval
+    public static let defaultLockGrace: TimeInterval = 600
 
     public init(
         enabledPlatforms: [Platform] = [.instagram, .youtube],
@@ -73,7 +76,8 @@ public struct WallPolicy: Codable, Sendable, Equatable {
         hardLock: HardLock? = nil,
         recipeUpdatesEnabled: Bool = false,
         shieldPlatforms: [String: Platform] = [:],
-        limits: LimitsPolicy = .off
+        limits: LimitsPolicy = .off,
+        lockGraceSeconds: TimeInterval = WallPolicy.defaultLockGrace
     ) {
         self.enabledPlatforms = enabledPlatforms
         self.platformSettings = platformSettings
@@ -86,6 +90,7 @@ public struct WallPolicy: Codable, Sendable, Equatable {
         self.recipeUpdatesEnabled = recipeUpdatesEnabled
         self.shieldPlatforms = shieldPlatforms
         self.limits = limits
+        self.lockGraceSeconds = lockGraceSeconds
     }
 
     // Missing keys take defaults so a policy saved by an older build still loads. A policy that
@@ -105,6 +110,7 @@ public struct WallPolicy: Codable, Sendable, Equatable {
         recipeUpdatesEnabled = try c.decodeIfPresent(Bool.self, forKey: .recipeUpdatesEnabled) ?? d.recipeUpdatesEnabled
         shieldPlatforms = try c.decodeIfPresent([String: Platform].self, forKey: .shieldPlatforms) ?? d.shieldPlatforms
         limits = try c.decodeIfPresent(LimitsPolicy.self, forKey: .limits) ?? d.limits
+        lockGraceSeconds = try c.decodeIfPresent(TimeInterval.self, forKey: .lockGraceSeconds) ?? d.lockGraceSeconds
     }
 
     public func settings(for platform: Platform) -> PlatformSettings {

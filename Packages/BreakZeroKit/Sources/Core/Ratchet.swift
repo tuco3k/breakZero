@@ -15,6 +15,8 @@ public enum PolicyChange: Codable, Sendable, Equatable {
     case setPassCap(Int)
     case setCooldown(TimeInterval)
     case setLockEnabled(Bool)
+    /// How long the Lock can be undone after it goes on (0…600 s). Shorter = tightening.
+    case setLockGrace(seconds: TimeInterval)
     case setDenyAppRemoval(Bool)
     /// nil clears the Hard Lock.
     case setHardLock(until: Date?)
@@ -23,6 +25,10 @@ public enum PolicyChange: Codable, Sendable, Equatable {
     case setDailyLimit(Platform, minutes: Int?)
     /// 0 turns the shared short-form budget off.
     case setShortFormBudget(minutes: Int)
+    /// A platform's own short-form budget; nil turns it off.
+    case setPlatformShortFormBudget(Platform, minutes: Int?)
+    /// Daily minutes across all platforms; nil removes the cap.
+    case setDailyTotal(minutes: Int?)
     case addSchedule(ScheduleRule)
     case removeSchedule(id: String)
     /// Feed rules (ARCHITECTURE.md §4c). Usernames are normalized (`Friends.normalize`).
@@ -48,11 +54,14 @@ public enum PolicyChange: Codable, Sendable, Equatable {
         case .setPassCap: "pass/cap"
         case .setCooldown: "cooldown"
         case .setLockEnabled: "lock"
+        case .setLockGrace: "lock/grace"
         case .setDenyAppRemoval: "denyAppRemoval"
         case .setHardLock: "hardLock"
         case .setRecipeUpdates: "recipeUpdates"
         case let .setDailyLimit(p, _): "limit/daily/\(p.rawValue)"
         case .setShortFormBudget: "limit/shortForm"
+        case let .setPlatformShortFormBudget(p, _): "limit/shortForm/\(p.rawValue)"
+        case .setDailyTotal: "limit/dailyTotal"
         case let .addSchedule(rule): "schedule/\(rule.id)"
         case let .removeSchedule(id): "schedule/\(id)"
         case let .setAudience(p, surface, _): "audience/\(p.rawValue)/\(surface.rawValue)"
@@ -94,14 +103,39 @@ public struct LockState: Codable, Sendable, Equatable {
     public var lastVerifiedIntact: Date?
     /// Set when we notice the wall came down (authorization revoked).
     public var wallDownSince: Date?
+    /// The undo window after the Lock went on (QUESTIONS #53).
+    public var grace: GraceWindow?
 
     public init(pending: [PendingChange] = [], ledger: ElapsedLedger = .init(), passes: PassLedger = .init(),
-                lastVerifiedIntact: Date? = nil, wallDownSince: Date? = nil) {
+                lastVerifiedIntact: Date? = nil, wallDownSince: Date? = nil, grace: GraceWindow? = nil) {
         self.pending = pending
         self.ledger = ledger
         self.passes = passes
         self.lastVerifiedIntact = lastVerifiedIntact
         self.wallDownSince = wallDownSince
+        self.grace = grace
+    }
+}
+
+/// "Undo" window right after the Lock goes on. Ends at the earliest of: `seconds` of wall clock,
+/// `seconds` of uptime, a reboot, or the wall clock moving backwards. Clock tricks can only end it
+/// early, never stretch it.
+public struct GraceWindow: Codable, Sendable, Equatable {
+    public var start: ClockSample
+    public var seconds: TimeInterval
+
+    public init(start: ClockSample, seconds: TimeInterval) {
+        self.start = start
+        self.seconds = seconds
+    }
+
+    /// Seconds left at `now`, or nil once it's over.
+    public func remaining(at now: ClockSample) -> TimeInterval? {
+        guard now.bootID == start.bootID else { return nil }
+        let wall = now.wall.timeIntervalSince(start.wall), up = now.uptime - start.uptime
+        guard wall >= 0, up >= 0 else { return nil }
+        let left = seconds - max(wall, up)
+        return left > 0 ? left : nil
     }
 }
 
@@ -182,21 +216,24 @@ public struct Ratchet: Sendable {
             return cmp(c, policy.cooldown, looserWhenGreater: false)
         case let .setLockEnabled(on):
             return on == policy.lockEnabled ? .neutral : (on ? .tightening : .loosening)
+        case let .setLockGrace(seconds):
+            return cmp(seconds, policy.lockGraceSeconds, looserWhenGreater: true)
         case let .setDenyAppRemoval(on):
             return on == policy.denyAppRemoval ? .neutral : (on ? .tightening : .loosening)
         case let .setDailyLimit(p, minutes):
             // nil = no limit = the loosest.
             let old = policy.limits.dailyMinutes[p] ?? Int.max
             return cmp(minutes ?? Int.max, old, looserWhenGreater: true)
+        case let .setDailyTotal(minutes):
+            return cmp(minutes ?? Int.max, policy.limits.dailyTotalMinutes ?? Int.max, looserWhenGreater: true)
         case let .setShortFormBudget(minutes):
             var after = policy
             after.limits.shortFormMinutes = minutes
-            var up = false, down = false
-            for p in shortFormToggles.keys {
-                let before = shortFormAllowance(p, policy), new = shortFormAllowance(p, after)
-                if new > before { up = true } else if new < before { down = true }
-            }
-            return up ? .loosening : (down ? .tightening : .neutral)
+            return compareShortForm(policy, after)
+        case let .setPlatformShortFormBudget(p, minutes):
+            var after = policy
+            after.limits.shortFormPerPlatform[p] = minutes
+            return compareShortForm(policy, after)
         case let .addSchedule(rule):
             guard let old = policy.limits.schedules.first(where: { $0.id == rule.id }) else { return .tightening }
             return old == rule ? .neutral : .loosening
@@ -245,10 +282,23 @@ public struct Ratchet: Sendable {
         return widens ? .loosening : .tightening
     }
 
-    /// Minutes of short-form a day the policy allows on `p`: the budget if it's on, otherwise
-    /// none while every short-form route toggle is on, unlimited if any is off.
+    /// Allowance up for any platform = loosening; down for some and up for none = tightening.
+    func compareShortForm(_ before: WallPolicy, _ after: WallPolicy) -> ChangeKind {
+        var up = false, down = false
+        for p in shortFormToggles.keys {
+            let b = shortFormAllowance(p, before), a = shortFormAllowance(p, after)
+            if a > b { up = true } else if a < b { down = true }
+        }
+        return up ? .loosening : (down ? .tightening : .neutral)
+    }
+
+    /// Minutes of short-form a day the policy allows on `p`: the smallest budget that applies to it
+    /// (shared, its own) if any is on; otherwise none while every short-form route toggle is on,
+    /// unlimited if any is off.
     func shortFormAllowance(_ p: Platform, _ policy: WallPolicy) -> Int {
-        if policy.limits.shortFormMinutes > 0 { return policy.limits.shortFormMinutes }
+        let budgets = [policy.limits.shortFormMinutes > 0 ? policy.limits.shortFormMinutes : nil,
+                       policy.limits.shortFormPerPlatform[p]].compactMap { $0 }
+        if let smallest = budgets.min() { return smallest }
         let toggles = shortFormToggles[p] ?? []
         return toggles.allSatisfy { isOn(p, $0, policy) } ? 0 : Int.max
     }
@@ -257,11 +307,14 @@ public struct Ratchet: Sendable {
         switch change {
         case let .setDailyLimit(_, m?) where !(1...1440).contains(m): return "daily limit must be 1–1440 minutes"
         case let .setShortFormBudget(m) where !(0...600).contains(m): return "short-form budget must be 0–600 minutes"
+        case let .setPlatformShortFormBudget(_, m?) where !(1...600).contains(m): return "short-form budget must be 1–600 minutes"
+        case let .setDailyTotal(m?) where !(1...1440).contains(m): return "daily limit must be 1–1440 minutes"
         case let .addSchedule(rule) where !rule.isValid: return "invalid schedule"
         case let .setPassDuration(m) where !(1...60).contains(m): return "pass duration must be 1–60 minutes"
         case let .setPassWait(s) where !(0...600).contains(s): return "pass wait must be 0–600 seconds"
         case let .setPassCap(n) where !(0...20).contains(n): return "pass cap must be 0–20"
         case let .setCooldown(c) where !WallPolicy.cooldownRange.contains(c): return "cooldown must be 1 h – 7 d"
+        case let .setLockGrace(t) where !(0...WallPolicy.defaultLockGrace).contains(t): return "grace period must be 0–10 minutes"
         case let .addCustomBlock(_, p) where (try? PathRegex(p.hasPrefix("^") ? p : "^" + p)) == nil: return "invalid pattern"
         case let .addCustomHide(_, s) where s.isEmpty || s.contains("{") || s.contains("}") || s.contains("<"): return "invalid selector"
         case let .addFriend(_, u) where !Friends.isValid(u), let .removeFriend(_, u) where !Friends.isValid(u),
@@ -293,8 +346,17 @@ public struct Ratchet: Sendable {
             let kind = classify(change, against: policy)
             // A newer edit to the same field replaces whatever was waiting.
             lock.pending.removeAll { $0.change.fieldKey == change.fieldKey }
-            if kind != .loosening || !policy.lockEnabled {
+            let wasLocked = policy.lockEnabled
+            // Undo within the grace period: the Lock comes off at once (Hard Lock still holds).
+            let undo = change == .setLockEnabled(false) && wasLocked && lock.grace?.remaining(at: sample) != nil
+                && !isHardLocked(policy, lock: lock, now: sample.wall)
+            if kind != .loosening || !wasLocked || undo {
                 apply(change, to: &policy, lock: lock, now: sample.wall)
+                if !wasLocked, policy.lockEnabled {
+                    lock.grace = policy.lockGraceSeconds > 0 ? GraceWindow(start: sample, seconds: policy.lockGraceSeconds) : nil
+                } else if !policy.lockEnabled {
+                    lock.grace = nil
+                }
                 return .applied(kind)
             }
             if isHardLocked(policy, lock: lock, now: sample.wall), let h = policy.hardLock {
@@ -360,6 +422,7 @@ public struct Ratchet: Sendable {
         case let .setPassCap(n): policy.pass.dailyCap = n
         case let .setCooldown(c): policy.cooldown = c
         case let .setLockEnabled(on): policy.lockEnabled = on
+        case let .setLockGrace(seconds): policy.lockGraceSeconds = seconds
         case let .setDenyAppRemoval(on): policy.denyAppRemoval = on
         case let .setHardLock(until):
             policy.hardLock = until.map {
@@ -368,6 +431,8 @@ public struct Ratchet: Sendable {
         case let .setRecipeUpdates(on): policy.recipeUpdatesEnabled = on
         case let .setDailyLimit(p, minutes): policy.limits.dailyMinutes[p] = minutes
         case let .setShortFormBudget(minutes): policy.limits.shortFormMinutes = minutes
+        case let .setPlatformShortFormBudget(p, minutes): policy.limits.shortFormPerPlatform[p] = minutes
+        case let .setDailyTotal(minutes): policy.limits.dailyTotalMinutes = minutes
         case let .addSchedule(rule):
             policy.limits.schedules.removeAll { $0.id == rule.id }
             policy.limits.schedules.append(rule)

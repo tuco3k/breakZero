@@ -56,20 +56,30 @@ public struct LimitsPolicy: Codable, Sendable, Equatable {
 
     /// Minutes per day per platform; absent = no limit.
     public var dailyMinutes: [Platform: Int]
+    /// Minutes per day across every platform together; nil = no overall cap.
+    public var dailyTotalMinutes: Int?
     /// One budget shared by every platform's short-form surfaces. 0 = off.
     public var shortFormMinutes: Int
+    /// A short-form budget per platform (Reels / Shorts / Spotlight); absent = none. With the shared
+    /// budget also on, both apply and the first to run out blocks.
+    public var shortFormPerPlatform: [Platform: Int]
     public var schedules: [ScheduleRule]
 
-    public init(dailyMinutes: [Platform: Int] = [:], shortFormMinutes: Int = 0, schedules: [ScheduleRule] = []) {
+    public init(dailyMinutes: [Platform: Int] = [:], dailyTotalMinutes: Int? = nil, shortFormMinutes: Int = 0,
+                shortFormPerPlatform: [Platform: Int] = [:], schedules: [ScheduleRule] = []) {
         self.dailyMinutes = dailyMinutes
+        self.dailyTotalMinutes = dailyTotalMinutes
         self.shortFormMinutes = shortFormMinutes
+        self.shortFormPerPlatform = shortFormPerPlatform
         self.schedules = schedules
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         dailyMinutes = try c.decodeIfPresent([Platform: Int].self, forKey: .dailyMinutes) ?? [:]
+        dailyTotalMinutes = try c.decodeIfPresent(Int.self, forKey: .dailyTotalMinutes)
         shortFormMinutes = try c.decodeIfPresent(Int.self, forKey: .shortFormMinutes) ?? 0
+        shortFormPerPlatform = try c.decodeIfPresent([Platform: Int].self, forKey: .shortFormPerPlatform) ?? [:]
         schedules = try c.decodeIfPresent([ScheduleRule].self, forKey: .schedules) ?? []
     }
 
@@ -106,8 +116,13 @@ public struct UsageState: Codable, Sendable, Equatable {
     public private(set) var dayTimeZone: String?
     public private(set) var platformSeconds: [Platform: Double] = [:]
     public private(set) var shortFormSeconds: Double = 0
+    /// Short-form seconds per platform (for per-platform budgets).
+    public private(set) var shortFormPlatformSeconds: [Platform: Double] = [:]
 
     public init() {}
+
+    /// Seconds on every platform together (for the overall cap).
+    public var totalSeconds: Double { platformSeconds.values.reduce(0, +) }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -118,6 +133,7 @@ public struct UsageState: Codable, Sendable, Equatable {
         dayTimeZone = try c.decodeIfPresent(String.self, forKey: .dayTimeZone)
         platformSeconds = try c.decodeIfPresent([Platform: Double].self, forKey: .platformSeconds) ?? [:]
         shortFormSeconds = try c.decodeIfPresent(Double.self, forKey: .shortFormSeconds) ?? 0
+        shortFormPlatformSeconds = try c.decodeIfPresent([Platform: Double].self, forKey: .shortFormPlatformSeconds) ?? [:]
     }
 
     public var pinnedTimeZone: TimeZone {
@@ -139,7 +155,10 @@ public struct UsageState: Codable, Sendable, Equatable {
         if let activity {
             let used = min(credited, Self.maxTick)
             platformSeconds[activity.platform, default: 0] += used
-            if activity.shortForm { shortFormSeconds += used }
+            if activity.shortForm {
+                shortFormSeconds += used
+                shortFormPlatformSeconds[activity.platform, default: 0] += used
+            }
         }
         rollOverIfNeeded(timeZone: timeZone)
     }
@@ -148,6 +167,7 @@ public struct UsageState: Codable, Sendable, Equatable {
         guard let now = trustedNow, let end = dayEndsAt, now >= end else { return }
         platformSeconds = [:]
         shortFormSeconds = 0
+        shortFormPlatformSeconds = [:]
         startDay(at: end, timeZone: timeZone, now: now)
     }
 
@@ -202,18 +222,39 @@ public enum BlockReason: String, Codable, Sendable {
 public struct LimitStatus: Equatable, Sendable {
     /// Platforms that are done for now, and why.
     public var platformBlock: [Platform: BlockReason]
+    /// The shared budget / short-form schedule alone (all platforms). Per platform: `shortFormMode`.
     public var shortForm: ShortFormMode
     /// Why short-form is forced off (when `shortForm == .forcedBlocked`).
     public var shortFormReason: BlockReason?
-    /// Seconds left in the short-form budget (budget on only).
+    /// Seconds left in the shared short-form budget (budget on only).
     public var shortFormRemaining: TimeInterval?
-    /// Seconds left today per platform with a daily limit.
+    /// Per platform, with its own budget and the shared one combined (missing = `shortForm`).
+    public var shortFormByPlatform: [Platform: ShortFormMode] = [:]
+    public var shortFormReasonByPlatform: [Platform: BlockReason] = [:]
+    public var shortFormRemainingByPlatform: [Platform: TimeInterval] = [:]
+    /// Seconds left today per platform with a daily limit or the overall cap (the smaller).
     public var platformRemaining: [Platform: TimeInterval]
+    /// Seconds left today across all platforms (overall cap only).
+    public var totalRemaining: TimeInterval?
     /// When the trusted day ends (for "back tomorrow" copy).
     public var dayEndsAt: Date?
 
     public static let unlimited = LimitStatus(platformBlock: [:], shortForm: .togglesDecide, shortFormReason: nil,
                                               shortFormRemaining: nil, platformRemaining: [:], dayEndsAt: nil)
+
+    public init(platformBlock: [Platform: BlockReason], shortForm: ShortFormMode, shortFormReason: BlockReason?,
+                shortFormRemaining: TimeInterval?, platformRemaining: [Platform: TimeInterval], dayEndsAt: Date?) {
+        self.platformBlock = platformBlock
+        self.shortForm = shortForm
+        self.shortFormReason = shortFormReason
+        self.shortFormRemaining = shortFormRemaining
+        self.platformRemaining = platformRemaining
+        self.dayEndsAt = dayEndsAt
+    }
+
+    public func shortFormMode(_ p: Platform) -> ShortFormMode { shortFormByPlatform[p] ?? shortForm }
+    public func shortFormReason(_ p: Platform) -> BlockReason? { shortFormReasonByPlatform[p] ?? shortFormReason }
+    public func shortFormRemaining(_ p: Platform) -> TimeInterval? { shortFormRemainingByPlatform[p] ?? shortFormRemaining }
 }
 
 public enum LimitEvaluator {
@@ -231,10 +272,13 @@ public enum LimitEvaluator {
             return limits.schedules.contains { $0.isValid && $0.target == target && $0.isActive(minute: local.minute, weekday: local.weekday) }
         }
 
+        let totalLeft = limits.dailyTotalMinutes.map { TimeInterval($0 * 60) - usage.totalSeconds }
+        status.totalRemaining = totalLeft.map { max(0, $0) }
         for p in platforms {
             let onPass = activePassTokens.contains(passToken(p))
-            if let minutes = limits.dailyMinutes[p] {
-                let left = TimeInterval(minutes * 60) - (usage.platformSeconds[p] ?? 0)
+            // Every limit that is set applies; the first to run out blocks (QUESTIONS #54).
+            let ownLeft = limits.dailyMinutes[p].map { TimeInterval($0 * 60) - (usage.platformSeconds[p] ?? 0) }
+            if let left = [ownLeft, totalLeft].compactMap({ $0 }).min() {
                 status.platformRemaining[p] = max(0, left)
                 if left <= 0, !onPass { status.platformBlock[p] = .dailyLimit }
             }
@@ -258,6 +302,23 @@ public enum LimitEvaluator {
         }
         if limits.shortFormMinutes > 0, status.shortFormRemaining == nil {
             status.shortFormRemaining = max(0, TimeInterval(limits.shortFormMinutes * 60) - usage.shortFormSeconds)
+        }
+        // Per-platform budgets on top of the shared one.
+        for p in platforms {
+            guard let own = limits.shortFormPerPlatform[p] else { continue }
+            let ownLeft = TimeInterval(own * 60) - (usage.shortFormPlatformSeconds[p] ?? 0)
+            let sharedLeft = limits.shortFormMinutes > 0 ? TimeInterval(limits.shortFormMinutes * 60) - usage.shortFormSeconds : nil
+            let left = [ownLeft, sharedLeft].compactMap { $0 }.min() ?? ownLeft
+            status.shortFormRemainingByPlatform[p] = max(0, left)
+            if status.shortForm == .forcedBlocked, status.shortFormReason == .shortFormSchedule {
+                status.shortFormByPlatform[p] = .forcedBlocked
+                status.shortFormReasonByPlatform[p] = .shortFormSchedule
+            } else if left > 0 {
+                status.shortFormByPlatform[p] = .budgetAllowed
+            } else {
+                status.shortFormByPlatform[p] = .forcedBlocked
+                status.shortFormReasonByPlatform[p] = .shortFormBudget
+            }
         }
         return status
     }
