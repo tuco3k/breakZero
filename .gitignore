@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# XcodeGen generates the project from project.yml
+*.xcodeproj/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Node (JS filter tests)
+node_modules/
+
+# Signing material never goes in the repo
+*.p12
+*.mobileprovision
+*.cer
