@@ -177,6 +177,9 @@ final class AppModel {
         c.onUnreadCount = { [weak self] n in self?.unread[p] = n }
         c.onDownloaded = { [weak self] url in self?.saveToPhotos(url) }
         c.onCookiesChanged = { [weak self] in Task { await self?.updateSession(p, thenLoadLanding: false) } }
+        c.onViolation = { [weak self] v in self?.handleViolation(p, v) }
+        c.setLimits(LiteLimits(blocked: limitStatus.platformBlock[p]?.rawValue))
+        c.setWatchdogRunning(isForeground)
         controllers[p] = c
         // Check the session first so a signed-out YouTube lands on Search, not empty Subscriptions.
         Task { await updateSession(p, thenLoadLanding: true) }
@@ -307,7 +310,9 @@ final class AppModel {
             meterTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.tickUsage(counting: true) }
             }
+            for c in controllers.values { c.setWatchdogRunning(true) }
         } else {
+            for c in controllers.values { c.setWatchdogRunning(false) }
             tickUsage(counting: true)
             isForeground = false
             meterTimer?.invalidate()
@@ -369,8 +374,40 @@ final class AppModel {
         limitsChanged(from: before, to: next)
     }
 
-    /// Hook for the watchdog (item 5).
-    func limitsChanged(from before: LimitStatus, to next: LimitStatus) {}
+    /// Push each platform's block state to its lite view; the watchdog (page + native) acts on it.
+    func limitsChanged(from before: LimitStatus, to next: LimitStatus) {
+        for (p, c) in controllers {
+            c.setLimits(LiteLimits(blocked: next.platformBlock[p]?.rawValue))
+        }
+    }
+
+    /// The watchdog moved the user off something: short toast saying why, and a log line.
+    func handleViolation(_ p: Platform, _ v: WatchdogViolation) {
+        let text = violationText(p, v)
+        log("watchdog (\(v.source.rawValue)) \(v.reason)\(v.detail.map { "/" + $0 } ?? "") \(v.ruleID ?? ""): \(text)",
+            source: "watchdog.\(p.rawValue)")
+        showToast(text, platform: p)
+    }
+
+    func violationText(_ p: Platform, _ v: WatchdogViolation) -> String {
+        if v.reason == "limit" {
+            return v.detail == "schedule" ? String(localized: "\(p.displayName) is off by schedule.")
+                : String(localized: "Daily limit reached for \(p.displayName).")
+        }
+        let isShortFormRule = v.ruleID.flatMap { id in recipes[p]?.routes.first { $0.id == id }?.shortForm } ?? false
+        if isShortFormRule, limitStatus.shortForm == .forcedBlocked {
+            return limitStatus.shortFormReason == .shortFormSchedule
+                ? String(localized: "Reels and Shorts are off by schedule.")
+                : String(localized: "Reels/Shorts time is used up for today.")
+        }
+        switch v.reason {
+        case "bounced": return String(localized: "One reel per message. Back to the chat.")
+        case "outOfScope": return String(localized: "Reels only open from a message.")
+        case "redirected": return String(localized: "Opened the allowed version.")
+        case "autoAdvance": return String(localized: "Autoplay is off.")
+        default: return String(localized: "That part is behind the wall.")
+        }
+    }
 
     // MARK: Extra time (lite passes: same cap, wait and log as native passes)
 

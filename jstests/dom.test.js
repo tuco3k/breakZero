@@ -103,17 +103,19 @@ test('a throwing filter is isolated and reported; others still run', () => {
   assert.ok(hidden(window.document, 'reel-link'), 'the good heuristics still ran');
 });
 
-function installed(fixture, url, settings, state) {
+function installed(fixture, url, settings, state, extra) {
   const { window } = dom(fixture, url);
   const posts = [];
   const replaced = [];
+  const intervals = [];
   window.webkit = { messageHandlers: { bz: { postMessage: (m) => posts.push(m) } } };
-  const ctl = bz.install(window, {
-    active: active(url.includes('youtube') ? 'youtube' : 'instagram', settings || {}),
+  const platform = url.includes('youtube') ? 'youtube' : 'instagram';
+  const ctl = bz.install(window, Object.assign({
+    active: active(platform, settings || {}),
     state: state || { grant: null },
     strings: { needsUpdate: 'NEEDS-UPDATE', report: 'REPORT' }
-  }, { replace: (u) => replaced.push(u) });
-  return { window, posts, replaced, ctl };
+  }, extra || {}), { replace: (u) => replaced.push(u), setInterval: (fn, ms) => intervals.push({ fn, ms }) });
+  return { window, posts, replaced, ctl, intervals };
 }
 
 test('install: reel from DM plays once; pushState to the next reel bounces to the thread', () => {

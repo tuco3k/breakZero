@@ -63,6 +63,26 @@ final class LiteScriptBuilderTests: XCTestCase {
                        "video error code 2 (MEDIA_ERR_NETWORK: network error while loading (VPN, blocked host, offline)) source=blob")
     }
 
+    func testViolationMessages() {
+        XCTAssertEqual(LiteMessage.parse(["type": "violation", "reason": "outOfScope", "ruleID": "ig.route.reelOnce"]),
+                       .violation(.init(reason: "outOfScope", detail: nil, ruleID: "ig.route.reelOnce", source: .page)))
+        XCTAssertEqual(LiteMessage.parse(["type": "violation", "reason": "limit", "detail": "dailyLimit"]),
+                       .violation(.init(reason: "limit", detail: "dailyLimit", ruleID: nil, source: .page)))
+        XCTAssertEqual(LiteMessage.parse(["type": "violation", "reason": "limit", "detail": "<b>"]),
+                       .violation(.init(reason: "limit", detail: nil, ruleID: nil, source: .page)), "unknown detail dropped")
+        XCTAssertNil(LiteMessage.parse(["type": "violation", "reason": "whatever"]))
+    }
+
+    func testLimitsReachThePage() throws {
+        let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(.instagram))
+        let json = try LiteScriptBuilder.configJSON(active: active, state: .init(), strings: strings, previousHref: nil,
+                                                    limits: .init(blocked: "schedule"))
+        XCTAssertTrue(json.contains(#""limits":{"blocked":"schedule"}"#))
+        let update = try LiteScriptBuilder.updateScript(active: active, limits: .none)
+        XCTAssertTrue(update.hasPrefix("window.__bzUpdate && window.__bzUpdate({"))
+        XCTAssertTrue(update.contains(#""limits":{}"#) || update.contains(#""limits":{"blocked":null}"#))
+    }
+
     func testStableHash() {
         XCTAssertEqual(LiteScriptBuilder.stableHash(""), "cbf29ce484222325")
         XCTAssertEqual(LiteScriptBuilder.stableHash("a"), "af63dc4c8601ec8c")

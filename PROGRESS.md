@@ -92,6 +92,14 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   "done for today" screen with the pass path (`DoneForTodayView.swift`), Wall › Limits and
   Schedules (`LimitsSection.swift`), remaining minutes in the header strip.
 
+- [x] 5. Enforcement watchdog. In page (`bz-filter.js`, tested in Node): `watchdogCheck` runs
+  every 1 s and on hashchange/pageshow/focus/visibility; an unseen URL change or a page that's no
+  longer allowed (rules changed, budget ran out, platform blocked) → stop, pause media, go to the
+  safe page, post `violation`; 2 s debounce; `__bzUpdate` lets native push new rules/limits without
+  a reload. Native (UNVERIFIED): `RuleEngine.check` (tested, same shared vectors as JS) on a 1 s
+  timer in `LiteWebController`, acting only on a URL that's been showing a full tick; violations →
+  toast in the header strip + Diagnostics log (`AppModel.handleViolation`).
+
 ## Next
 1. Owner: `docs/ON_DEVICE_CHECKLIST.md` steps 1–14; report spike results.
 2. Phase 1 remaining items above (downloads, interactionState restore, unread counts).

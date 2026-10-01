@@ -82,6 +82,14 @@ public struct RuleEngine: Sendable {
         return decide(path: Self.path(url), query: url.query, previousPathAndQuery: previousPath, state: &state)
     }
 
+    /// Watchdog check of the page *as it is now*: the same decision with no side effects (the
+    /// state is copied, nothing is granted, a granted DM reel stays allowed). Mirrored by
+    /// `watchdogCheck` in bz-filter.js; both run the shared route vectors.
+    public func check(url: URL, state: NavigationState) -> NavigationDecision {
+        var copy = state
+        return decide(url: url, from: nil, state: &copy)
+    }
+
     /// Host-free core of `decide`, mirrored exactly by the JS route guard.
     public func decide(path: String, query: String?, previousPathAndQuery: String?, state: inout NavigationState) -> NavigationDecision {
         let path = path.isEmpty ? "/" : path

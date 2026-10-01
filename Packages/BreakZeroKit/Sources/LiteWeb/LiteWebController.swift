@@ -42,6 +42,15 @@ public final class LiteWebController: NSObject {
     public var onDownloaded: ((URL) -> Void)?
     /// Cookies changed (debounced ~1 s): the app re-checks signed in/out (landing, Accounts).
     public var onCookiesChanged: (() -> Void)?
+    /// The watchdog (page or native) moved the user off something that was showing.
+    public var onViolation: ((WatchdogViolation) -> Void)?
+    /// What the limits say about this platform right now (pushed into the page too).
+    public private(set) var limits = LiteLimits.none
+    private var watchdogTimer: Timer?
+    private var lastViolationAt = Date.distantPast
+    /// URL seen at the previous native watchdog tick; we act only on a URL that has been showing
+    /// for a whole tick, so we never race the page's own route messages.
+    private var watchdogLastURL: URL?
     private var cookieDebounce: Task<Void, Never>?
 
     private let filterSource: String
@@ -140,7 +149,61 @@ public final class LiteWebController: NSObject {
         engine = try RuleEngine(active: active)
         installUserScript(previousHref: webView.url?.absoluteString)
         compileContentRules()
-        if reload { webView.reload() }
+        if reload { webView.reload() } else { pushConfigToPage() }
+    }
+
+    // MARK: Watchdog (ARCHITECTURE.md §4b)
+
+    /// New limits for this platform (daily limit / schedule). Takes effect in the live page now.
+    public func setLimits(_ new: LiteLimits) {
+        guard new != limits else { return }
+        limits = new
+        installUserScript(previousHref: webView.url?.absoluteString)
+        pushConfigToPage()
+        if new.blocked != nil { watchdogTick(force: true) }
+    }
+
+    private func pushConfigToPage() {
+        guard let js = try? LiteScriptBuilder.updateScript(active: engine.active, limits: limits) else { return }
+        webView.evaluateJavaScript(js, in: nil, in: .page) { _ in }
+    }
+
+    /// Run the native watchdog (1 s timer) — independent of the page's own checks.
+    public func setWatchdogRunning(_ on: Bool) {
+        watchdogTimer?.invalidate()
+        watchdogTimer = nil
+        watchdogLastURL = nil
+        guard on else { return }
+        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.watchdogTick(force: false) }
+        }
+    }
+
+    func watchdogTick(force: Bool) {
+        guard let url = webView.url, engine.isFilteredHost(url.host) else { watchdogLastURL = nil; return }
+        defer { watchdogLastURL = url }
+        guard force || url == watchdogLastURL else { return }
+        guard Date().timeIntervalSince(lastViolationAt) >= 2 else { return }
+        let here = RuleEngine.pathAndQuery(url)
+        if let blocked = limits.blocked {
+            if here == engine.active.landingPath {
+                pauseMedia()
+            } else {
+                violate(.init(reason: "limit", detail: blocked, ruleID: nil, source: .native), to: engine.active.landingPath)
+            }
+            return
+        }
+        if case let .redirect(to, reason) = engine.check(url: url, state: state) {
+            violate(.from(reason), to: to)
+        }
+    }
+
+    private func violate(_ v: WatchdogViolation, to path: String) {
+        lastViolationAt = Date()
+        webView.stopLoading()
+        pauseMedia()
+        load(path: path)
+        onViolation?(v)
     }
 
     fileprivate func cookiesChanged() {
@@ -164,7 +227,7 @@ public final class LiteWebController: NSObject {
         ucc.removeAllUserScripts()
         do {
             let source = try LiteScriptBuilder.userScript(filterSource: filterSource, active: engine.active, state: state,
-                                                          strings: strings, previousHref: previousHref)
+                                                          strings: strings, previousHref: previousHref, limits: limits)
             ucc.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         } catch {
             onEvent?("userScript build failed: \(error)")
@@ -208,6 +271,9 @@ public final class LiteWebController: NSObject {
             onReport?(ids)
         case let .filterError(id):
             onEvent?("filter error: \(id)")
+        case let .violation(v):
+            lastViolationAt = Date()
+            onViolation?(v)
         case let .media(event, kind, code, source):
             // Cap per page load so a looping error can't flood the log.
             guard mediaReports < 20 else { return }

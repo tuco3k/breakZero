@@ -354,14 +354,43 @@
   }
 
   /*
+   * Watchdog (ARCHITECTURE.md §4b): is the page *as it is now* allowed? No side effects — the
+   * state is copied, so a granted DM reel stays allowed and nothing is granted here.
+   * Returns null when fine, else { reason, detail, ruleID, to } (`to` = where to go instead).
+   * `limits.blocked` is set by native when a daily limit or schedule blocks the whole platform.
+   */
+  function watchdogCheck(c, href, state, limits) {
+    if (limits && limits.blocked) {
+      return { reason: 'limit', detail: String(limits.blocked), ruleID: null, to: c.landingPath };
+    }
+    var copy = { grant: state && state.grant ? state.grant : null };
+    var d;
+    try { d = decideURL(c, href, null, copy); } catch (e) { return null; }
+    if (d.type === 'redirect') return { reason: d.reason, detail: null, ruleID: d.ruleID, to: d.to };
+    return null;
+  }
+
+  function pauseAllMedia(doc) {
+    var media = doc.querySelectorAll('video,audio');
+    for (var i = 0; i < media.length; i++) {
+      try { media[i].pause(); } catch (e) { /* keep going */ }
+    }
+  }
+
+  /*
    * Install into a live page. `config` comes from native (LiteScriptBuilder):
-   * { active: ActiveRecipe, state: {grant}, strings: {needsUpdate, report}, previousHref }
-   * `hooks.replace(url)` overrides navigation (tests only; jsdom can't navigate).
+   * { active: ActiveRecipe, state: {grant}, strings: {needsUpdate, report}, previousHref,
+   *   limits: { blocked: reason | null } }
+   * hooks (tests only): `replace(url)` instead of navigating (jsdom can't), `setInterval(fn, ms)`
+   * instead of a real timer.
    */
   function install(win, config, hooks) {
     var doc = win.document;
     var replace = (hooks && hooks.replace) || function (u) { win.location.replace(u); };
+    var every = (hooks && hooks.setInterval) || function (fn, ms) { return win.setInterval(fn, ms); };
     var c = compile(config.active);
+    var limits = config.limits || { blocked: null };
+    var lastViolationAt = 0;
     var state = config.state || { grant: null };
     var strings = config.strings || {};
     var lastHref = win.location.href;
@@ -531,16 +560,83 @@
       mo.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['href'] });
     } catch (e) { post({ type: 'filterError', id: 'observer' }); }
 
+    /*
+     * Watchdog: every ~1 s and on every navigation event, re-check the page as it is. Catches
+     * anything that got past the guard (an unhooked router, a swipe, a budget that ran out
+     * mid-video). On a violation: stop loading, pause media, go to the safe page, tell native
+     * (toast + log). Debounced 2 s so the landing page can load.
+     */
+    function violate(v) {
+      var here = win.location.pathname + win.location.search;
+      // Platform blocked and already on its landing page: keep media paused, don't repeat.
+      if (v.reason === 'limit' && v.to === here) { pauseAllMedia(doc); return; }
+      var now = Date.now();
+      if (now - lastViolationAt < 2000) return;
+      lastViolationAt = now;
+      try { win.stop(); } catch (e) { /* not supported */ }
+      pauseAllMedia(doc);
+      post({ type: 'violation', reason: v.reason, detail: v.detail, ruleID: v.ruleID });
+      if (v.to && v.to !== here) replace(v.to);
+    }
+
+    function watchdog() {
+      try {
+        if (win.location.href !== lastHref) {
+          // A URL change the guard never saw: decide it as a navigation (so a DM reel can still
+          // be granted), and if it's not allowed, treat it as a violation — the page is showing.
+          var from = lastHref;
+          var d = check(win.location.href, from);
+          lastHref = win.location.href;
+          if (d.type === 'redirect') {
+            violate({ reason: d.reason, detail: null, ruleID: d.ruleID, to: d.to });
+            return;
+          }
+          if (d.type === 'refuse') {
+            var f = new URL(from);
+            violate({ reason: 'autoAdvance', detail: null, ruleID: null, to: f.pathname + f.search });
+            return;
+          }
+          post({ type: 'route', href: win.location.href, state: state });
+          refresh();
+        }
+        var v = watchdogCheck(c, win.location.href, state, limits);
+        if (v) violate(v);
+        schedule();
+      } catch (e) {
+        post({ type: 'filterError', id: 'watchdog' });
+      }
+    }
+
+    every(watchdog, 1000);
+    ['hashchange', 'pageshow', 'focus'].forEach(function (t) { win.addEventListener(t, watchdog); });
+    doc.addEventListener('visibilitychange', function () { if (!doc.hidden) watchdog(); });
+
+    // Native pushes new rules/limits here (budget ran out, schedule started) without a reload.
+    // Page scripts could call it too; the native watchdog checks independently every second.
+    win.__bzUpdate = function (next) {
+      try {
+        if (next && next.active) c = compile(next.active);
+        if (next && next.limits) limits = next.limits;
+        refresh();
+        watchdog();
+      } catch (e) {
+        post({ type: 'filterError', id: 'update' });
+      }
+    };
+
     // The first document load: native already ran the same decision; this is the backstop.
     var first = check(win.location.href, config.previousHref || null);
     if (first.type === 'redirect') enforce(first, win.location.href);
     refresh();
+    if (limits.blocked) watchdog();
 
     return {
       state: state,
-      compiled: c,
+      get compiled() { return c; },
+      get limits() { return limits; },
       tick: tick,
       refresh: refresh,
+      watchdog: watchdog,
       ctx: ctx
     };
   }
@@ -557,6 +653,7 @@
     runCanaries: runCanaries,
     isAutoAdvance: isAutoAdvance,
     mediaReport: mediaReport,
+    watchdogCheck: watchdogCheck,
     install: install
   };
 });

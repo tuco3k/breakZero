@@ -61,6 +61,48 @@ final class RuleEngineTests: XCTestCase {
         }
     }
 
+    /// Watchdog parity with bz-filter.js `watchdogCheck`: a page the guard would have redirected
+    /// is a violation if it's showing anyway; a page the guard allowed passes.
+    func testWatchdogCheckOnSharedVectors() throws {
+        for seq in try RouteVectors.load().sequences {
+            let platform = try XCTUnwrap(Platform(rawValue: seq.platform))
+            let engine = try RuleEngine(active: ActiveRecipe(recipe: RecipeLibrary.bundled(platform), settings: seq.settings ?? .default,
+                                                             signedIn: seq.signedIn ?? true, shortForm: seq.shortForm ?? .togglesDecide))
+            var state = NavigationState()
+            var current: URL?
+            for (i, step) in seq.steps.enumerated() {
+                let url = try XCTUnwrap(URL(string: step.url))
+                if step.fresh == true { current = nil; state = NavigationState() }
+                let before = state
+                let where_ = "\(seq.name) step \(i): \(step.url)"
+                switch engine.decide(url: url, from: current, state: &state) {
+                case .allow:
+                    XCTAssertEqual(engine.check(url: url, state: state), .allow, where_)
+                    current = url
+                case let .redirect(to, _):
+                    guard case let .redirect(wTo, _) = engine.check(url: url, state: before) else {
+                        XCTFail("\(where_): watchdog must flag it"); continue
+                    }
+                    XCTAssertEqual(wTo, to, where_)
+                    XCTAssertEqual(state.grant == nil, true, where_)
+                    current = URL(string: to, relativeTo: url)?.absoluteURL
+                case .openExternally:
+                    break
+                }
+            }
+        }
+    }
+
+    func testWatchdogCheckHasNoSideEffects() throws {
+        let engine = try RuleEngine(active: ActiveRecipe(recipe: RecipeLibrary.bundled(.instagram)))
+        let granted = NavigationState(grant: .init(ruleID: "ig.route.reelOnce", key: "AAA", returnTo: "/direct/t/1/"))
+        XCTAssertEqual(engine.check(url: URL(string: "https://www.instagram.com/reel/AAA/")!, state: granted), .allow)
+        XCTAssertEqual(engine.check(url: URL(string: "https://www.instagram.com/reel/BBB/")!, state: granted),
+                       .redirect(to: "/direct/t/1/", reason: .bounced(ruleID: "ig.route.reelOnce")))
+        XCTAssertEqual(engine.check(url: URL(string: "https://www.instagram.com/reel/CCC/")!, state: NavigationState()),
+                       .redirect(to: "/direct/inbox/", reason: .outOfScope(ruleID: "ig.route.reelOnce")))
+    }
+
     func testRedirectNeverTargetsCurrentPage() throws {
         // A recipe whose block lands on itself must not loop.
         var recipe = try RecipeLibrary.bundled(.instagram)

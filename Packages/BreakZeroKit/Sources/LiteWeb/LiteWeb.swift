@@ -24,6 +24,7 @@ public enum LiteScriptBuilder {
         var state: NavigationState
         var strings: LiteStrings
         var previousHref: String?
+        var limits: LiteLimits
     }
 
     /// Contents of bz-filter.js, loaded once.
@@ -35,11 +36,11 @@ public enum LiteScriptBuilder {
     }
 
     public static func configJSON(active: ActiveRecipe, state: NavigationState, strings: LiteStrings,
-                                  previousHref: String?) throws -> String {
+                                  previousHref: String?, limits: LiteLimits = .none) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let json = String(decoding: try encoder.encode(Config(active: active, state: state, strings: strings, previousHref: previousHref)),
-                          as: UTF8.self)
+        let config = Config(active: active, state: state, strings: strings, previousHref: previousHref, limits: limits)
+        let json = String(decoding: try encoder.encode(config), as: UTF8.self)
         // JSON is a JS expression, but keep the literal safe in every engine and context.
         return json
             .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
@@ -51,8 +52,8 @@ public enum LiteScriptBuilder {
     /// the page: worst case the page loads unfiltered and the native layers (content rules,
     /// navigation delegate, URL observer) still hold.
     public static func userScript(filterSource: String, active: ActiveRecipe, state: NavigationState,
-                                  strings: LiteStrings, previousHref: String?) throws -> String {
-        let config = try configJSON(active: active, state: state, strings: strings, previousHref: previousHref)
+                                  strings: LiteStrings, previousHref: String?, limits: LiteLimits = .none) throws -> String {
+        let config = try configJSON(active: active, state: state, strings: strings, previousHref: previousHref, limits: limits)
         return """
         (function () {
         \(filterSource)
@@ -66,6 +67,17 @@ public enum LiteScriptBuilder {
         }
         })();
         """
+    }
+
+    /// JS that pushes new rules/limits into a live page (`window.__bzUpdate`), no reload.
+    public static func updateScript(active: ActiveRecipe, limits: LiteLimits) throws -> String {
+        struct Update: Encodable { var active: ActiveRecipe; var limits: LiteLimits }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let json = String(decoding: try encoder.encode(Update(active: active, limits: limits)), as: UTF8.self)
+            .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+            .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+        return "window.__bzUpdate && window.__bzUpdate(\(json));"
     }
 
     /// FNV-1a, hex. Stable across launches (unlike `hashValue`), for cache identifiers.
@@ -142,6 +154,42 @@ public enum MediaDiagnostics {
     }
 }
 
+/// What native tells the page about limits: the platform is blocked (daily limit / schedule).
+public struct LiteLimits: Codable, Sendable, Equatable {
+    public var blocked: String?
+
+    public init(blocked: String?) { self.blocked = blocked }
+    public static let none = LiteLimits(blocked: nil)
+}
+
+/// A watchdog violation (page or native): what was showing that shouldn't be, for the toast/log.
+public struct WatchdogViolation: Equatable, Sendable {
+    public enum Source: String, Sendable { case page, native }
+
+    /// "blocked", "redirected", "bounced", "outOfScope", "autoAdvance" or "limit".
+    public var reason: String
+    /// For "limit": "dailyLimit" or "schedule".
+    public var detail: String?
+    public var ruleID: String?
+    public var source: Source
+
+    public init(reason: String, detail: String?, ruleID: String?, source: Source) {
+        self.reason = reason
+        self.detail = detail
+        self.ruleID = ruleID
+        self.source = source
+    }
+
+    public static func from(_ reason: NavigationDecision.Reason) -> WatchdogViolation {
+        switch reason {
+        case let .blocked(id): .init(reason: "blocked", detail: nil, ruleID: id, source: .native)
+        case let .redirected(id): .init(reason: "redirected", detail: nil, ruleID: id, source: .native)
+        case let .bounced(id): .init(reason: "bounced", detail: nil, ruleID: id, source: .native)
+        case let .outOfScope(id): .init(reason: "outOfScope", detail: nil, ruleID: id, source: .native)
+        }
+    }
+}
+
 /// Messages the injected script posts to the `bz` handler. Page scripts can post too, so every
 /// field is validated and nothing here can widen what the user can reach.
 public enum LiteMessage: Equatable, Sendable {
@@ -153,6 +201,7 @@ public enum LiteMessage: Equatable, Sendable {
     case filterError(id: String)
     /// A `<video>`/`<audio>` event: "error", "stalled" or "playing" (first per element).
     case media(event: String, kind: String, code: Int?, source: String)
+    case violation(WatchdogViolation)
 
     public static func parse(_ body: Any) -> LiteMessage? {
         guard let d = body as? [String: Any], let type = d["type"] as? String else { return nil }
@@ -171,6 +220,13 @@ public enum LiteMessage: Equatable, Sendable {
             return .report(ids: ids())
         case "filterError":
             return .filterError(id: String(((d["id"] as? String) ?? "?").prefix(80)))
+        case "violation":
+            let reasons: Set<String> = ["blocked", "redirected", "bounced", "outOfScope", "autoAdvance", "limit"]
+            guard let reason = d["reason"] as? String, reasons.contains(reason) else { return nil }
+            let details: Set<String> = ["dailyLimit", "schedule"]
+            let detail = (d["detail"] as? String).flatMap { details.contains($0) ? $0 : nil }
+            let ruleID = (d["ruleID"] as? String).map { String($0.prefix(80)) }
+            return .violation(.init(reason: reason, detail: detail, ruleID: ruleID, source: .page))
         case "media":
             let allowedEvents: Set<String> = ["error", "stalled", "playing"]
             guard let event = d["event"] as? String, allowedEvents.contains(event) else { return nil }
