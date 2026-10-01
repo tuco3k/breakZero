@@ -189,3 +189,25 @@ test('safe ancestor: a too-large hideAncestor stops below structural containers'
   assert.ok(!hidden(doc, 'post-friend'));
   assert.ok(!doc.querySelector('main').hasAttribute('data-bz-hidden'));
 });
+
+test('media diagnostics: passive, no URLs, first playing/stalled per element, every error', () => {
+  const { window, posts } = installed('yt-watch.html', 'https://m.youtube.com/watch?v=A');
+  const v = window.document.getElementById('video');
+  v.dispatchEvent(new window.Event('playing'));
+  v.dispatchEvent(new window.Event('playing'));
+  v.dispatchEvent(new window.Event('stalled'));
+  v.dispatchEvent(new window.Event('stalled'));
+  v.dispatchEvent(new window.Event('error'));
+  v.dispatchEvent(new window.Event('error'));
+  const media = posts.filter((p) => p.type === 'media');
+  assert.deepEqual(media.map((m) => m.event), ['playing', 'stalled', 'error', 'error']);
+  assert.ok(media.every((m) => m.source === 'none' && m.kind === 'video'));
+  assert.ok(!JSON.stringify(media).includes('http'), 'no URLs in reports');
+  assert.equal(v.paused, true, 'listeners never call play/pause');
+});
+
+test('mediaReport: blob vs url source, error code passthrough', () => {
+  const el = { tagName: 'VIDEO', currentSrc: 'blob:https://m.youtube.com/abc', error: { code: 4 } };
+  assert.deepEqual(bz.mediaReport('error', el), { type: 'media', event: 'error', kind: 'video', code: 4, source: 'blob' });
+  assert.equal(bz.mediaReport('playing', { tagName: 'AUDIO', src: 'https://x/y.mp3', error: null }).source, 'url');
+});

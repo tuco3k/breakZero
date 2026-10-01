@@ -318,6 +318,18 @@
     return failed;
   }
 
+  /* Diagnostics payload for a media event: never includes the media URL. */
+  function mediaReport(event, el) {
+    var src = String(el.currentSrc || el.src || '');
+    return {
+      type: 'media',
+      event: event,
+      kind: el.tagName === 'AUDIO' ? 'audio' : 'video',
+      code: el.error && typeof el.error.code === 'number' ? el.error.code : null,
+      source: src.indexOf('blob:') === 0 ? 'blob' : (src ? 'url' : 'none')
+    };
+  }
+
   function queryParam(search, name) {
     var m = new RegExp('[?&]' + name.replace(/[^A-Za-z0-9_]/g, '') + '=([^&#]*)').exec(search || '');
     return m ? m[1] : null;
@@ -497,6 +509,22 @@
     });
     doc.addEventListener('ended', function () { ctx.lastEndedAt = Date.now(); }, true);
 
+    // Playback diagnostics (passive listeners only; the player itself is never touched): report
+    // media errors, the first stall and the first successful start per element, so Diagnostics
+    // can say *why* a video didn't play. No URLs leave the page: only "blob"/"url"/"none".
+    var mediaSeen = { playing: new WeakSet(), stalled: new WeakSet() };
+    ['error', 'stalled', 'playing'].forEach(function (t) {
+      doc.addEventListener(t, function (ev) {
+        var el = ev.target;
+        if (!el || (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO')) return;
+        if (mediaSeen[t]) {
+          if (mediaSeen[t].has(el)) return;
+          mediaSeen[t].add(el);
+        }
+        post(mediaReport(t, el));
+      }, true);
+    });
+
     // Layer 4 trigger: throttled with requestAnimationFrame.
     try {
       var mo = new win.MutationObserver(schedule);
@@ -528,6 +556,7 @@
     runHeuristics: runHeuristics,
     runCanaries: runCanaries,
     isAutoAdvance: isAutoAdvance,
+    mediaReport: mediaReport,
     install: install
   };
 });

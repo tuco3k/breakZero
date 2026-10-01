@@ -1,118 +1,384 @@
 {
-  "_comment": "Shared by Swift (RuleEngineTests) and Node (jstests/route-guard.test.js). Each case runs in order within its sequence; state carries over. expect: allow | redirect:<target> | external. Default settings unless 'settings' is given.",
+  "_comment": "Shared by Swift (RuleEngineTests) and Node (jstests/route-guard.test.js). Each case runs in order within its sequence; state carries over. expect: allow | redirect:<target> | external. Default settings unless 'settings' is given. Optional 'signedIn': false uses the recipe's signed-out landing.",
   "sequences": [
     {
       "name": "instagram basics",
       "platform": "instagram",
       "steps": [
-        {"url": "https://www.instagram.com/direct/inbox/", "expect": "allow"},
-        {"url": "https://www.instagram.com/reels/", "expect": "redirect:/direct/inbox/"},
-        {"url": "https://www.instagram.com/reels", "expect": "redirect:/direct/inbox/"},
-        {"url": "https://www.instagram.com/explore/", "expect": "redirect:/direct/inbox/"},
-        {"url": "https://www.instagram.com/explore/tags/cats/", "expect": "redirect:/direct/inbox/"},
-        {"url": "https://www.instagram.com/explore/search/", "expect": "allow"},
-        {"url": "https://www.instagram.com/explorer_guy/", "expect": "allow"},
-        {"url": "https://www.instagram.com/shop/", "expect": "redirect:/direct/inbox/"},
-        {"url": "https://www.instagram.com/someone/", "expect": "allow"},
-        {"url": "https://www.instagram.com/someone/reels/", "expect": "redirect:/someone/"},
-        {"url": "https://www.instagram.com/p/ABC123/", "expect": "allow"},
-        {"url": "https://www.instagram.com/stories/someone/123/", "expect": "allow"},
-        {"url": "https://www.instagram.com/accounts/login/?next=%2F", "expect": "allow"},
-        {"url": "https://www.instagram.com/?variant=following", "expect": "allow"},
-        {"url": "https://www.instagram.com/reels/audio/123/", "expect": "redirect:/direct/inbox/"},
-        {"url": "https://l.instagram.com/?u=https%3A%2F%2Fexample.com", "expect": "external"},
-        {"url": "https://example.com/", "expect": "external"},
-        {"url": "https://www.facebook.com/login/", "expect": "allow"},
-        {"url": "instagram://direct", "expect": "external"},
-        {"url": "about:blank", "expect": "allow"}
+        {
+          "url": "https://www.instagram.com/direct/inbox/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reels/",
+          "expect": "redirect:/direct/inbox/"
+        },
+        {
+          "url": "https://www.instagram.com/reels",
+          "expect": "redirect:/direct/inbox/"
+        },
+        {
+          "url": "https://www.instagram.com/explore/",
+          "expect": "redirect:/direct/inbox/"
+        },
+        {
+          "url": "https://www.instagram.com/explore/tags/cats/",
+          "expect": "redirect:/direct/inbox/"
+        },
+        {
+          "url": "https://www.instagram.com/explore/search/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/explorer_guy/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/shop/",
+          "expect": "redirect:/direct/inbox/"
+        },
+        {
+          "url": "https://www.instagram.com/someone/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/someone/reels/",
+          "expect": "redirect:/someone/"
+        },
+        {
+          "url": "https://www.instagram.com/p/ABC123/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/stories/someone/123/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/accounts/login/?next=%2F",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/?variant=following",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reels/audio/123/",
+          "expect": "redirect:/direct/inbox/"
+        },
+        {
+          "url": "https://l.instagram.com/?u=https%3A%2F%2Fexample.com",
+          "expect": "external"
+        },
+        {
+          "url": "https://example.com/",
+          "expect": "external"
+        },
+        {
+          "url": "https://www.facebook.com/login/",
+          "expect": "allow"
+        },
+        {
+          "url": "instagram://direct",
+          "expect": "external"
+        },
+        {
+          "url": "about:blank",
+          "expect": "allow"
+        }
       ]
     },
     {
       "name": "instagram reel from DM plays once, swipe bounces back",
       "platform": "instagram",
       "steps": [
-        {"url": "https://www.instagram.com/direct/t/1234567/", "expect": "allow"},
-        {"url": "https://www.instagram.com/reel/AAA111/", "expect": "allow"},
-        {"url": "https://www.instagram.com/reel/AAA111/?igsh=x", "expect": "allow"},
-        {"url": "https://www.instagram.com/reel/BBB222/", "expect": "redirect:/direct/t/1234567/"},
-        {"url": "https://www.instagram.com/direct/t/1234567/", "expect": "allow"},
-        {"url": "https://www.instagram.com/reels/CCC333/", "expect": "allow"},
-        {"url": "https://www.instagram.com/direct/inbox/", "expect": "allow"},
-        {"url": "https://www.instagram.com/reel/CCC333/", "expect": "redirect:/direct/inbox/"}
+        {
+          "url": "https://www.instagram.com/direct/t/1234567/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reel/AAA111/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reel/AAA111/?igsh=x",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reel/BBB222/",
+          "expect": "redirect:/direct/t/1234567/"
+        },
+        {
+          "url": "https://www.instagram.com/direct/t/1234567/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reels/CCC333/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/direct/inbox/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reel/CCC333/",
+          "expect": "redirect:/direct/inbox/"
+        }
       ]
     },
     {
       "name": "instagram reel not from a thread",
       "platform": "instagram",
       "steps": [
-        {"url": "https://www.instagram.com/someone/", "expect": "allow"},
-        {"url": "https://www.instagram.com/reel/AAA111/", "expect": "redirect:/direct/inbox/"},
-        {"url": "https://www.instagram.com/reel/AAA111/", "expect": "redirect:/direct/inbox/"}
+        {
+          "url": "https://www.instagram.com/someone/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/reel/AAA111/",
+          "expect": "redirect:/direct/inbox/"
+        },
+        {
+          "url": "https://www.instagram.com/reel/AAA111/",
+          "expect": "redirect:/direct/inbox/"
+        }
       ]
     },
     {
       "name": "instagram pasted reel url with no previous page",
       "platform": "instagram",
       "steps": [
-        {"url": "https://www.instagram.com/reel/ZZZ999/", "expect": "redirect:/direct/inbox/", "fresh": true}
+        {
+          "url": "https://www.instagram.com/reel/ZZZ999/",
+          "expect": "redirect:/direct/inbox/",
+          "fresh": true
+        }
       ]
     },
     {
       "name": "instagram following landing",
       "platform": "instagram",
-      "settings": {"landing": "following"},
+      "settings": {
+        "landing": "following"
+      },
       "steps": [
-        {"url": "https://www.instagram.com/reels/", "expect": "redirect:/?variant=following"},
-        {"url": "https://www.instagram.com/?variant=following", "expect": "allow"}
+        {
+          "url": "https://www.instagram.com/reels/",
+          "expect": "redirect:/?variant=following"
+        },
+        {
+          "url": "https://www.instagram.com/?variant=following",
+          "expect": "allow"
+        }
       ]
     },
     {
       "name": "instagram reels toggle off",
       "platform": "instagram",
-      "settings": {"toggles": {"ig.blockReels": false}},
+      "settings": {
+        "toggles": {
+          "ig.blockReels": false
+        }
+      },
       "steps": [
-        {"url": "https://www.instagram.com/reels/", "expect": "allow"},
-        {"url": "https://www.instagram.com/explore/", "expect": "redirect:/direct/inbox/"}
+        {
+          "url": "https://www.instagram.com/reels/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/explore/",
+          "expect": "redirect:/direct/inbox/"
+        }
       ]
     },
     {
       "name": "instagram custom block",
       "platform": "instagram",
-      "settings": {"customBlocks": ["/stories/"]},
+      "settings": {
+        "customBlocks": [
+          "/stories/"
+        ]
+      },
       "steps": [
-        {"url": "https://www.instagram.com/stories/someone/1/", "expect": "redirect:/direct/inbox/"}
+        {
+          "url": "https://www.instagram.com/stories/someone/1/",
+          "expect": "redirect:/direct/inbox/"
+        }
       ]
     },
     {
       "name": "youtube basics",
       "platform": "youtube",
       "steps": [
-        {"url": "https://m.youtube.com/", "expect": "redirect:/feed/subscriptions"},
-        {"url": "https://www.youtube.com/?app=m", "expect": "redirect:/feed/subscriptions"},
-        {"url": "https://m.youtube.com/feed/subscriptions", "expect": "allow"},
-        {"url": "https://m.youtube.com/shorts/dQw4w9WgXcQ", "expect": "redirect:/watch?v=dQw4w9WgXcQ"},
-        {"url": "https://www.youtube.com/shorts/a-b_C123?feature=share", "expect": "redirect:/watch?v=a-b_C123"},
-        {"url": "https://m.youtube.com/shorts/", "expect": "redirect:/feed/subscriptions"},
-        {"url": "https://m.youtube.com/@somechannel/shorts", "expect": "redirect:/@somechannel/videos"},
-        {"url": "https://m.youtube.com/@somechannel", "expect": "allow"},
-        {"url": "https://m.youtube.com/watch?v=dQw4w9WgXcQ", "expect": "allow"},
-        {"url": "https://m.youtube.com/results?search_query=cats", "expect": "allow"},
-        {"url": "https://m.youtube.com/feed/library", "expect": "allow"},
-        {"url": "https://m.youtube.com/playlist?list=WL", "expect": "allow"},
-        {"url": "https://m.youtube.com/feed/history", "expect": "allow"},
-        {"url": "https://m.youtube.com/feed/explore", "expect": "redirect:/feed/subscriptions"},
-        {"url": "https://m.youtube.com/feed/trending", "expect": "redirect:/feed/subscriptions"},
-        {"url": "https://accounts.google.com/ServiceLogin", "expect": "allow"},
-        {"url": "https://youtu.be/dQw4w9WgXcQ", "expect": "external"}
+        {
+          "url": "https://m.youtube.com/",
+          "expect": "redirect:/feed/subscriptions"
+        },
+        {
+          "url": "https://www.youtube.com/?app=m",
+          "expect": "redirect:/feed/subscriptions"
+        },
+        {
+          "url": "https://m.youtube.com/feed/subscriptions",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/shorts/dQw4w9WgXcQ",
+          "expect": "redirect:/watch?v=dQw4w9WgXcQ"
+        },
+        {
+          "url": "https://www.youtube.com/shorts/a-b_C123?feature=share",
+          "expect": "redirect:/watch?v=a-b_C123"
+        },
+        {
+          "url": "https://m.youtube.com/shorts/",
+          "expect": "redirect:/feed/subscriptions"
+        },
+        {
+          "url": "https://m.youtube.com/@somechannel/shorts",
+          "expect": "redirect:/@somechannel/videos"
+        },
+        {
+          "url": "https://m.youtube.com/@somechannel",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/results?search_query=cats",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/feed/library",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/playlist?list=WL",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/feed/history",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/feed/explore",
+          "expect": "redirect:/feed/subscriptions"
+        },
+        {
+          "url": "https://m.youtube.com/feed/trending",
+          "expect": "redirect:/feed/subscriptions"
+        },
+        {
+          "url": "https://accounts.google.com/ServiceLogin",
+          "expect": "allow"
+        },
+        {
+          "url": "https://youtu.be/dQw4w9WgXcQ",
+          "expect": "external"
+        },
+        {
+          "url": "https://m.youtube.com/feed/you",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/feed/playlists",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/playlist?list=WL",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/playlist?list=PLabc123",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/watch?v=abc&list=WL&index=2",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/feed/channels",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/@somechannel/videos",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/@somechannel/playlists",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/@somechannel/streams",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/channel/UCxxxxxxxxxxxxxxxxxxxxxx",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/c/SomeName",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/user/SomeName",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/results?search_query=",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/hashtag/cats",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/account",
+          "expect": "allow"
+        }
       ]
     },
     {
       "name": "youtube home allowed when landing toggle off",
       "platform": "youtube",
-      "settings": {"toggles": {"yt.landOnSubscriptions": false}},
+      "settings": {
+        "toggles": {
+          "yt.landOnSubscriptions": false
+        }
+      },
       "steps": [
-        {"url": "https://m.youtube.com/", "expect": "allow"},
-        {"url": "https://m.youtube.com/shorts/abc", "expect": "redirect:/watch?v=abc"}
+        {
+          "url": "https://m.youtube.com/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/shorts/abc",
+          "expect": "redirect:/watch?v=abc"
+        }
+      ]
+    },
+    {
+      "name": "youtube signed out lands on search",
+      "platform": "youtube",
+      "signedIn": false,
+      "steps": [
+        {
+          "url": "https://m.youtube.com/",
+          "expect": "redirect:/results?search_query="
+        },
+        {
+          "url": "https://m.youtube.com/shorts/",
+          "expect": "redirect:/results?search_query="
+        },
+        {
+          "url": "https://m.youtube.com/results?search_query=",
+          "expect": "allow"
+        },
+        {
+          "url": "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+          "expect": "allow"
+        }
       ]
     }
   ]

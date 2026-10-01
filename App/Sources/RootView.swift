@@ -71,6 +71,7 @@ struct LiteTab: View {
 struct LiteHeaderStrip: View {
     @Environment(AppModel.self) private var model
     let platform: Platform
+    @State private var showSubscriptions = false
 
     var body: some View {
         @Bindable var model = model
@@ -87,6 +88,16 @@ struct LiteHeaderStrip: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
+            if platform == .youtube {
+                Button { showSubscriptions = true } label: {
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(.system(size: 17, weight: .medium))
+                        .frame(width: 44, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Subscriptions without signing in"))
+            }
             Button {
                 withAnimation(.snappy) { model.tabBarVisible.toggle() }
             } label: {
@@ -103,6 +114,7 @@ struct LiteHeaderStrip: View {
         .frame(height: 32)
         .background(.bar)
         .animation(.default, value: model.toast)
+        .sheet(isPresented: $showSubscriptions) { YouTubeSubscriptionsView() }
     }
 }
 

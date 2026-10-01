@@ -122,6 +122,26 @@ public enum UnreadBadge {
     }
 }
 
+/// Human names for `MediaError.code`, for the Diagnostics log.
+public enum MediaDiagnostics {
+    public static func describe(event: String, kind: String, code: Int?, source: String) -> String {
+        var line = "\(kind) \(event)"
+        if let code { line += " code \(code) (\(errorName(code)))" }
+        line += " source=\(source)"
+        return line
+    }
+
+    public static func errorName(_ code: Int) -> String {
+        switch code {
+        case 1: "MEDIA_ERR_ABORTED: fetching was aborted"
+        case 2: "MEDIA_ERR_NETWORK: network error while loading (VPN, blocked host, offline)"
+        case 3: "MEDIA_ERR_DECODE: the media couldn't be decoded"
+        case 4: "MEDIA_ERR_SRC_NOT_SUPPORTED: source not supported or not allowed"
+        default: "unknown"
+        }
+    }
+}
+
 /// Messages the injected script posts to the `bz` handler. Page scripts can post too, so every
 /// field is validated and nothing here can widen what the user can reach.
 public enum LiteMessage: Equatable, Sendable {
@@ -131,6 +151,8 @@ public enum LiteMessage: Equatable, Sendable {
     case canary(ids: [String])
     case report(ids: [String])
     case filterError(id: String)
+    /// A `<video>`/`<audio>` event: "error", "stalled" or "playing" (first per element).
+    case media(event: String, kind: String, code: Int?, source: String)
 
     public static func parse(_ body: Any) -> LiteMessage? {
         guard let d = body as? [String: Any], let type = d["type"] as? String else { return nil }
@@ -149,6 +171,13 @@ public enum LiteMessage: Equatable, Sendable {
             return .report(ids: ids())
         case "filterError":
             return .filterError(id: String(((d["id"] as? String) ?? "?").prefix(80)))
+        case "media":
+            let allowedEvents: Set<String> = ["error", "stalled", "playing"]
+            guard let event = d["event"] as? String, allowedEvents.contains(event) else { return nil }
+            let kind = (d["kind"] as? String) == "audio" ? "audio" : "video"
+            let rawSource = d["source"] as? String ?? ""
+            let source = ["blob", "url"].contains(rawSource) ? rawSource : "none"
+            return .media(event: event, kind: kind, code: (d["code"] as? NSNumber)?.intValue, source: source)
         default:
             return nil
         }

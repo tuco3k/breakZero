@@ -13,7 +13,7 @@ function recipe(platform) {
   return JSON.parse(fs.readFileSync(path.join(KIT, 'Sources', 'Core', 'Resources', 'Recipes', platform + '.json'), 'utf8'));
 }
 
-function active(platform, settings = {}) {
+function active(platform, settings = {}, signedIn = true) {
   const r = recipe(platform);
   const toggles = settings.toggles || {};
   const on = (t) => (t in toggles ? toggles[t] : (r.toggles.find((x) => x.id === t) || { defaultOn: true }).defaultOn);
@@ -28,7 +28,8 @@ function active(platform, settings = {}) {
     canaries: keep(r.canaries),
     resourceBlocks: keep(r.resourceBlocks)
   });
-  const landingKey = settings.landing && r.landing.options[settings.landing] ? settings.landing : r.landing.default;
+  let landingKey = settings.landing && r.landing.options[settings.landing] ? settings.landing : r.landing.default;
+  if (!signedIn && r.landing.signedOut && r.landing.options[r.landing.signedOut]) landingKey = r.landing.signedOut;
   return { recipe: out, landingPath: r.landing.options[landingKey] };
 }
 

@@ -89,10 +89,14 @@ public struct Recipe: Codable, Sendable, Equatable {
         public var `default`: String
         /// Landing choices, e.g. {"inbox": "/direct/inbox/", "following": "/?variant=following"}.
         public var options: [String: String]
+        /// Key into `options` used instead when the user is signed out (e.g. YouTube → search,
+        /// because Subscriptions is empty without an account). nil = same as signed in.
+        public var signedOut: String?
 
-        public init(default: String, options: [String: String]) {
+        public init(default: String, options: [String: String], signedOut: String? = nil) {
             self.default = `default`
             self.options = options
+            self.signedOut = signedOut
         }
     }
 
@@ -265,5 +269,11 @@ extension Recipe {
     public func landingPath(for key: String?) -> String {
         if let key, let path = landing.options[key] { return path }
         return landing.options[landing.default] ?? "/"
+    }
+
+    /// Landing for the user's choice, or the signed-out landing when there's no session.
+    public func landingPath(for key: String?, signedIn: Bool) -> String {
+        if !signedIn, let k = landing.signedOut, let path = landing.options[k] { return path }
+        return landingPath(for: key)
     }
 }

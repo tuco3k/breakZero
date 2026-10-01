@@ -134,7 +134,9 @@ final class AppModel {
 
     func activeRecipe(_ p: Platform) -> ActiveRecipe? {
         guard let recipe = recipes[p] else { return nil }
-        if let a = try? ActiveRecipe(recipe: recipe, settings: policy.settings(for: p)) { return a }
+        // Unknown session (not checked yet) counts as signed in; the check runs before first load.
+        let signedIn = sessions[p] ?? true
+        if let a = try? ActiveRecipe(recipe: recipe, settings: policy.settings(for: p), signedIn: signedIn) { return a }
         // A bad custom rule must never take the platform's filters down: fall back to defaults.
         log("settings for \(p.rawValue) invalid; using recipe defaults")
         return try? ActiveRecipe(recipe: recipe)
@@ -160,8 +162,10 @@ final class AppModel {
         }
         c.onUnreadCount = { [weak self] n in self?.unread[p] = n }
         c.onDownloaded = { [weak self] url in self?.saveToPhotos(url) }
+        c.onCookiesChanged = { [weak self] in Task { await self?.updateSession(p, thenLoadLanding: false) } }
         controllers[p] = c
-        c.loadLanding()
+        // Check the session first so a signed-out YouTube lands on Search, not empty Subscriptions.
+        Task { await updateSession(p, thenLoadLanding: true) }
         return c
     }
 
@@ -206,10 +210,21 @@ final class AppModel {
     // MARK: Accounts
 
     func refreshSessions() async {
-        for p in policy.enabledPlatforms {
-            guard let recipe = recipes[p] else { continue }
-            sessions[p] = await LiteSession.isSignedIn(p, recipe: recipe)
+        for p in policy.enabledPlatforms { await updateSession(p, thenLoadLanding: false) }
+    }
+
+    /// Re-read signed in/out from cookie names; if it changed, rebuild that lite view's rules
+    /// (the landing differs) without reloading the page.
+    func updateSession(_ p: Platform, thenLoadLanding: Bool) async {
+        guard let recipe = recipes[p] else { return }
+        let signedIn = await LiteSession.isSignedIn(p, recipe: recipe)
+        let changed = sessions[p] != signedIn
+        sessions[p] = signedIn
+        if changed, let c = controllers[p], let active = activeRecipe(p) {
+            try? c.update(active: active, reload: false)
+            log("\(p.rawValue) session: \(signedIn ? "signed in" : "signed out")")
         }
+        if thenLoadLanding { controllers[p]?.loadLanding() }
     }
 
     /// Clears only this platform's cookies, then reloads its lite view at the landing page.
@@ -218,6 +233,51 @@ final class AppModel {
         log("signed out of \(p.rawValue) (cookies cleared)")
         controllers[p]?.loadLanding()
         await refreshSessions()
+    }
+
+    // MARK: Login-free YouTube (RSS + Takeout CSV)
+
+    var youtubeSubscriptions: SubscriptionsState {
+        (try? store.read(SubscriptionsState.self, SubscriptionsState.file)) ?? SubscriptionsState()
+    }
+
+    /// Import Google Takeout's subscriptions.csv (picked with the Files sheet).
+    func importTakeoutCSV(from url: URL) throws -> Int {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let channels = TakeoutCSV.parseSubscriptions(text)
+        try store.update(SubscriptionsState.file, default: SubscriptionsState()) { (s: inout SubscriptionsState) in
+            s.importChannels(channels)
+        }
+        log("imported \(channels.count) YouTube channels from Takeout CSV")
+        return channels.count
+    }
+
+    /// Fetch each channel's public feed through NetworkPolicy (no cookies, no account).
+    func refreshYouTubeSubscriptions(force: Bool) async {
+        let enabled = policy.enabledPlatforms.compactMap { recipes[$0] }
+        let network = NetworkPolicy(recipes: enabled, recipeUpdatesEnabled: policy.recipeUpdatesEnabled)
+        let current = youtubeSubscriptions
+        let next = await SubscriptionsRefresher.refresh(current, now: Date(), force: force) { channel in
+            try await network.fetchYouTubeFeed(channel)
+        }
+        guard next != current else { return }
+        try? store.write(next, SubscriptionsState.file)
+        if !next.failedChannels.isEmpty { log("YouTube feeds: \(next.failedChannels.count) channels failed to load") }
+    }
+
+    /// Open a video from the native list in the YouTube lite view.
+    func openYouTube(path: String) {
+        guard policy.enabledPlatforms.contains(.youtube) else { return }
+        selectedTab = .lite(.youtube)
+        controller(for: .youtube)?.load(path: path)
+    }
+
+    /// Shorts appear in the list only when the user has turned "Hide Shorts" off.
+    var youtubeListIncludesShorts: Bool {
+        guard let r = recipes[.youtube] else { return false }
+        return !policy.settings(for: .youtube).isOn("yt.hideShorts", in: r)
     }
 
     // MARK: Toast

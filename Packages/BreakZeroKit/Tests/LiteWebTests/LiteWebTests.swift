@@ -53,6 +53,16 @@ final class LiteScriptBuilderTests: XCTestCase {
         XCTAssertNil(UnreadBadge.count(fromTitle: nil))
     }
 
+    func testMediaMessages() {
+        XCTAssertEqual(LiteMessage.parse(["type": "media", "event": "error", "kind": "video", "code": 2, "source": "blob"]),
+                       .media(event: "error", kind: "video", code: 2, source: "blob"))
+        XCTAssertNil(LiteMessage.parse(["type": "media", "event": "seeked"]), "only the three diagnostic events")
+        XCTAssertEqual(LiteMessage.parse(["type": "media", "event": "playing", "source": "https://x"]),
+                       .media(event: "playing", kind: "video", code: nil, source: "none"), "never a URL")
+        XCTAssertEqual(MediaDiagnostics.describe(event: "error", kind: "video", code: 2, source: "blob"),
+                       "video error code 2 (MEDIA_ERR_NETWORK: network error while loading (VPN, blocked host, offline)) source=blob")
+    }
+
     func testStableHash() {
         XCTAssertEqual(LiteScriptBuilder.stableHash(""), "cbf29ce484222325")
         XCTAssertEqual(LiteScriptBuilder.stableHash("a"), "af63dc4c8601ec8c")

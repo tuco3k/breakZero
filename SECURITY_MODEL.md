@@ -24,6 +24,18 @@ in the background. On next launch (and in every extension callback) breakZero re
 authorization, records when the wall was last verified intact, and shows a calm screen offering to
 rebuild it. No shaming, no partner notifications (that would need a server).
 
+## Spike results
+
+| Spike | Date, device | Result |
+|---|---|---|
+| S2 YouTube sign-in (WebKit default UA, lite build, free team, **VPN on**) | 2026-10-01, owner's iPhone | Google warned that the browser "didn't seem trustworthy" and made the owner sign in **twice**; after that, signed-in YouTube worked and landed on Subscriptions. Signed out, Subscriptions is a dead page. Whether the VPN triggered the warning is unknown (retest without it). Safari UA not yet tried. |
+
+What S2 means here: Google's embedded-browser check is outside our control and may tighten. So
+signed-in web YouTube stays an option, and the login-free fallback (BRIEF §6 S2) now exists: a
+native Subscriptions list from public channel RSS feeds, channels imported from a Google Takeout
+CSV, videos opened signed-out in the YouTube lite view. Signed out, the YouTube tab lands on Search.
+We don't spoof the user agent for login without the owner's go-ahead (BRIEF §6).
+
 ## Cooldowns and the clock
 Loosening changes wait for the cooldown, measured as **trusted elapsed time**
 (`Core/TrustedClock.swift`), recorded at every check-in (app launch/foreground, every extension

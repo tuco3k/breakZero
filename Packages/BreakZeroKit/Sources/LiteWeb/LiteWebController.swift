@@ -40,6 +40,9 @@ public final class LiteWebController: NSObject {
     public var onUnreadCount: ((Int?) -> Void)?
     /// A file the site offered as a download (saved to a temporary URL); the app saves it to Photos.
     public var onDownloaded: ((URL) -> Void)?
+    /// Cookies changed (debounced ~1 s): the app re-checks signed in/out (landing, Accounts).
+    public var onCookiesChanged: (() -> Void)?
+    private var cookieDebounce: Task<Void, Never>?
 
     private let filterSource: String
     private let strings: LiteStrings
@@ -53,6 +56,7 @@ public final class LiteWebController: NSObject {
     private let createdAt = Date()
     private var reportedFirstLoad = false
     private var lastCommittedURL: URL?
+    private var mediaReports = 0
     fileprivate var pendingDownloads: [ObjectIdentifier: URL] = [:]
 
     /// Stable per-platform data store identifiers (iOS 17+): sessions persist across launches and
@@ -102,6 +106,7 @@ public final class LiteWebController: NSObject {
         titleObservation = webView.observe(\.title, options: [.new]) { [weak self] wv, _ in
             Task { @MainActor in self?.onUnreadCount?(UnreadBadge.count(fromTitle: self?.webView.title)) }
         }
+        config.websiteDataStore.httpCookieStore.add(self)
         installUserScript(previousHref: nil)
         compileContentRules()
     }
@@ -118,12 +123,22 @@ public final class LiteWebController: NSObject {
         webView.load(URLRequest(url: url))
     }
 
-    /// New settings (ratchet applied them): rebuild every layer and reload.
-    public func update(active: ActiveRecipe) throws {
+    /// New settings (ratchet applied them, or the session changed): rebuild every layer.
+    /// `reload: false` keeps the current page (used when only the landing path changed).
+    public func update(active: ActiveRecipe, reload: Bool = true) throws {
         engine = try RuleEngine(active: active)
         installUserScript(previousHref: webView.url?.absoluteString)
         compileContentRules()
-        webView.reload()
+        if reload { webView.reload() }
+    }
+
+    fileprivate func cookiesChanged() {
+        cookieDebounce?.cancel()
+        cookieDebounce = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            self?.onCookiesChanged?()
+        }
     }
 
     @objc private func pullToRefresh(_ sender: UIRefreshControl) {
@@ -182,6 +197,11 @@ public final class LiteWebController: NSObject {
             onReport?(ids)
         case let .filterError(id):
             onEvent?("filter error: \(id)")
+        case let .media(event, kind, code, source):
+            // Cap per page load so a looping error can't flood the log.
+            guard mediaReports < 20 else { return }
+            mediaReports += 1
+            onEvent?(MediaDiagnostics.describe(event: event, kind: kind, code: code, source: source))
         }
     }
 
@@ -253,6 +273,7 @@ extension LiteWebController: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         lastCommittedURL = webView.url
+        mediaReports = 0
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -328,6 +349,12 @@ extension LiteWebController: WKUIDelegate {
             }
         }
         return nil
+    }
+}
+
+extension LiteWebController: WKHTTPCookieStoreObserver {
+    public nonisolated func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+        Task { @MainActor [weak self] in self?.cookiesChanged() }
     }
 }
 

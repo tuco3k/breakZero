@@ -7,6 +7,7 @@ struct RouteVectors: Decodable {
         var name: String
         var platform: String
         var settings: PlatformSettings?
+        var signedIn: Bool?
         var steps: [Step]
     }
 
@@ -30,7 +31,8 @@ final class RuleEngineTests: XCTestCase {
         XCTAssertFalse(vectors.sequences.isEmpty)
         for seq in vectors.sequences {
             let platform = try XCTUnwrap(Platform(rawValue: seq.platform))
-            let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(platform), settings: seq.settings ?? .default)
+            let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(platform), settings: seq.settings ?? .default,
+                                          signedIn: seq.signedIn ?? true)
             let engine = try RuleEngine(active: active)
             var state = NavigationState()
             var current: URL?

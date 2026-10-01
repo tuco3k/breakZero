@@ -42,7 +42,8 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
     public var recipe: Recipe
     public var landingPath: String
 
-    public init(recipe: Recipe, settings: PlatformSettings = .default) throws {
+    /// - signedIn: false picks the recipe's signed-out landing (YouTube: search).
+    public init(recipe: Recipe, settings: PlatformSettings = .default, signedIn: Bool = true) throws {
         var r = recipe
         let on = { (toggle: String) in settings.isOn(toggle, in: recipe) }
         r.routes = recipe.routes.filter { on($0.toggle) }
@@ -66,6 +67,6 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
         }
         try RecipeValidator.validate(r)
         self.recipe = r
-        self.landingPath = recipe.landingPath(for: settings.landing)
+        self.landingPath = recipe.landingPath(for: settings.landing, signedIn: signedIn)
     }
 }

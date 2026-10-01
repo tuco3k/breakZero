@@ -67,6 +67,18 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   names (`SessionDetector`, tested), sign-out clears only that platform's cookies (`LiteSession`,
   UNVERIFIED). Files: `RootView.swift`, `WallView.swift`, `AppModel.swift`, `LiteSession.swift`.
 
+- [x] 2. YouTube. Every page the owner listed (search, library `/feed/you`, playlists, watch later,
+  history, channel pages incl. `/channel/`, `/c/`, `/user/`, `/@x/videos|playlists|streams`) is
+  allowed by both engines (shared route vectors); no route-level over-blocking found. Signed out
+  (no `LOGIN_INFO`/`SID`/`__Secure-3PSID` cookie) the tab lands on Search (`/results?search_query=`).
+  Playback: a test proves no content rule can match googlevideo/ytimg/ggpht/player requests;
+  passive media listeners log `error` (with MediaError name), first `stalled` and first `playing`
+  per video to Diagnostics. Tap-to-play left unchanged (QUESTIONS #27 asks the owner).
+  **S2 result recorded**: Google warned "browser didn't seem trustworthy", two sign-ins needed, VPN
+  on (SECURITY_MODEL.md "Spike results"). Login-free fallback built: Takeout CSV import + RSS feeds
+  (`YouTubeSubscriptions.swift`, `NetworkPolicy.youtubeFeed`, tested) and a native list sheet from
+  the header strip's list button (`YouTubeSubscriptionsView.swift`, UNVERIFIED).
+
 ## Next
 1. Owner: `docs/ON_DEVICE_CHECKLIST.md` steps 1–14; report spike results.
 2. Phase 1 remaining items above (downloads, interactionState restore, unread counts).

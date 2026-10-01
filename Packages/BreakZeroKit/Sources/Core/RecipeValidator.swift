@@ -36,6 +36,9 @@ public enum RecipeValidator {
             check(HostPattern.isValid(host), "invalid host pattern \(host)")
         }
         check(recipe.landing.options[recipe.landing.default] != nil, "landing default has no path")
+        if let k = recipe.landing.signedOut {
+            check(recipe.landing.options[k] != nil, "landing signedOut has no path")
+        }
         for (key, path) in recipe.landing.options {
             check(path.hasPrefix("/"), "landing \(key) must be a path")
         }

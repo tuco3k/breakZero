@@ -144,6 +144,32 @@ final class ContentRuleListTests: XCTestCase {
         XCTAssertNil(ContentRuleListBuilder.urlFilter(forPathPattern: "^/a{2}", host: "x.com"))
     }
 
+    /// Video playback must never be blocked by layer 1: every compiled rule is document-only and
+    /// none of them matches the hosts YouTube streams and player code come from.
+    func testContentRulesNeverTouchVideoOrPlayerRequests() throws {
+        let media = [
+            "https://rr3---sn-abcdef.googlevideo.com/videoplayback?expire=1&id=o-abc",
+            "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+            "https://yt3.ggpht.com/abc=s88",
+            "https://www.youtube.com/s/player/abc123/player_ias.vflset/en_US/base.js",
+            "https://m.youtube.com/youtubei/v1/player?prettyPrint=false",
+            "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=WL",
+            "https://scontent.cdninstagram.com/v/t50/video.mp4",
+        ]
+        for platform in Platform.allCases {
+            let rules = ContentRuleListBuilder.rules(for: try ActiveRecipe(recipe: RecipeLibrary.bundled(platform)))
+            for rule in rules {
+                XCTAssertEqual(rule.trigger.resourceType, ["document"], "\(platform): only top-level documents may be blocked")
+                let re = try NSRegularExpression(pattern: rule.trigger.urlFilter)
+                for url in media {
+                    let hit = re.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil
+                    XCTAssertFalse(hit, "\(platform): \(rule.trigger.urlFilter) would block \(url)")
+                }
+            }
+        }
+    }
+
     func testJSONIsNeverEmpty() throws {
         var recipe = try RecipeLibrary.bundled(.youtube)
         recipe.routes.removeAll { $0.action == .block }
