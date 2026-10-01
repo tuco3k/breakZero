@@ -136,6 +136,81 @@ one filter marks that filter "unhealthy" (→ overlay on the forbidden surface) 
 > the extension must restore it. This is why every extension callback re-applies the base wall from
 > `WallPolicy` (idempotent) rather than trusting what is currently set.
 
+## 4a. Time limits, short-form budget, schedules (design, 2026-10-01)
+
+All OFF by default. Settings live in `WallPolicy.limits` (`LimitsPolicy`), so every change goes
+through the ratchet. State lives in a separate `usage.json` (`UsageState`), written every few
+seconds while a lite tab is on screen.
+
+**Settings** (`Core/Limits.swift`)
+- `dailyMinutes[platform]` — nil = no limit.
+- `shortFormMinutes` — one budget shared by Reels, Shorts and Spotlight. 0 = off.
+- `schedules` — `ScheduleRule { target: .shortForm | .platform(p), start, end (minutes after
+  local midnight, may wrap), weekdays? }`.
+
+**Which rules are "short-form"**: recipes mark rules with `"shortForm": true` (routes, hide rules,
+heuristics, canaries) and list `shortFormRoutes` (path regexes whose time counts against the
+budget). `ActiveRecipe` takes a `ShortFormMode`:
+- `.togglesDecide` — today's behavior (budget off, no schedule active);
+- `.budgetAllowed` — budget left: short-form rules are dropped, so Reels/Shorts work;
+- `.forcedBlocked` — budget used up or a short-form schedule is on: short-form rules run even if
+  their toggle was turned off.
+"Blocked" means back to the default wall, not stricter (a reel sent in a DM still plays once).
+
+**Counting** (`UsageMeter`): the app ticks once a second while a lite tab is on screen and the
+app is in the foreground. Each tick credits *trusted* time — the same rule as `ElapsedLedger`:
+`min(wall delta, uptime delta)`, capped at 30 s per tick, nothing across a reboot or while
+backgrounded (the meter is stopped). Seconds go to that platform's daily total, and to the
+short-form total when the current path matches `shortFormRoutes`. Written to disk every 5 s and on
+backgrounding, so killing the app loses at most ~5 s.
+
+**The day** (`UsageState.trustedNow`, `dayEndsAt`): a trusted clock estimate advanced only by
+credited time, never by the wall clock directly. When it passes `dayEndsAt` the counters reset and
+the next `dayEndsAt` is the next local midnight — computed in the time zone pinned at the start of
+the day, and never less than 20 h after the reset. So changing the clock or the time zone can't
+reset or extend anything early; at worst a reset comes late (after the phone was off a long time,
+or after flying east). Schedules are also evaluated in the pinned time zone.
+
+**Ratchet** (`Ratchet.classify`):
+| Change | Tightening | Loosening |
+|---|---|---|
+| Daily limit | lower, or none → some | raise, or some → none |
+| Short-form budget | allowance goes down for every platform | allowance goes up for any platform |
+| Schedule | add | remove |
+Allowance per platform = budget if budget > 0, else 0 when that platform's short-form toggles are
+all on, else unlimited. So turning the budget *on* is a loosening (Reels go from never to X min).
+
+**Extra time**: only through the native-pass rules — the "done for today" screen offers *Request a
+pass* (typed purpose, wait, daily cap, logged in the same `PassLedger`, token `lite:<platform>`).
+An active pass lifts that platform's daily limit and schedule block for its duration. No
+"5 more minutes" button.
+
+**Evaluation** (`LimitEvaluator.evaluate`) is a pure function of policy + usage + passes + trusted
+now → `LimitStatus { platformBlock[p]: reason?, shortForm: ShortFormMode, remaining… }`.
+Everything above is in Core and tested on Linux with a fake clock.
+
+## 4b. Enforcement watchdog (design, 2026-10-01)
+
+On top of the route guard (which acts *before* a navigation), a watchdog checks the *current*
+state, so anything that slips past the guard (a router we didn't hook, a swipe, a budget that ran
+out mid-video) is caught within about a second.
+
+- **In page** (`bz-filter.js`): `watchdogCheck(compiled, location, state, limits)` runs every
+  1 s and on every navigation event (`pushState`/`replaceState`/`popstate`/`hashchange`/
+  `pageshow`/`visibilitychange`). It re-runs the route decision without side effects (a granted
+  DM reel stays allowed), checks canaries, and checks the `limits` block native injected.
+- **Native** (`LiteWebController` + `AppModel`): a 1 s timer, independent of the page, reads
+  `webView.url`, runs `RuleEngine.check` (non-mutating `decide`), and checks `LimitStatus`.
+  When limits change (budget runs out), native rebuilds the active recipe and pushes the new
+  config into the page (`__bzUpdate`).
+- **On a violation** (either side): stop loading, pause every `<video>`/`<audio>`, go to the
+  platform's landing page (or the "done for today" screen when the whole platform is blocked),
+  show a short toast with the reason, and log it in Diagnostics. A 2 s debounce stops repeats
+  while the landing page loads.
+- Shared vectors: `route-vectors.json` drives both `RuleEngine.check` (Swift) and
+  `watchdogCheck` (Node): every step the guard redirects must also be a watchdog violation if the
+  page somehow got there, and every allowed step must pass.
+
 ## 5. Network policy
 
 `NetworkPolicy` is the only type allowed to create `URLRequest`s for `URLSession`. A unit test scans
