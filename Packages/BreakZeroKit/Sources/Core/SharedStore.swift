@@ -18,7 +18,8 @@ public enum AppGroup {
 public final class SharedStore: @unchecked Sendable {
     // @unchecked: all mutable access goes through `lock` and file coordination.
     public let directory: URL
-    private let lock = NSLock()
+    // Recursive: an update of one document may read or update another inside its body.
+    private let lock = NSRecursiveLock()
 
     public init(directory: URL) {
         self.directory = directory
