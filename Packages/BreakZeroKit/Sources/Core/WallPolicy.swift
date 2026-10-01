@@ -1,0 +1,85 @@
+import Foundation
+
+extension Platform: CodingKeyRepresentable {}
+
+/// The apps the user chose to shield. `data` is the opaque, encoded
+/// `FamilyActivitySelection` (only the Shielding layer can decode it). `tokenIDs` are stable
+/// per-token fingerprints computed by Shielding so Core can tell additions from removals.
+public struct ShieldSelection: Codable, Sendable, Equatable {
+    public var data: Data
+    public var tokenIDs: Set<String>
+
+    public init(data: Data = Data(), tokenIDs: Set<String> = []) {
+        self.data = data
+        self.tokenIDs = tokenIDs
+    }
+}
+
+public struct PassRules: Codable, Sendable, Equatable {
+    public var durationMinutes: Int
+    public var waitSeconds: Int
+    public var dailyCap: Int
+
+    public init(durationMinutes: Int = 5, waitSeconds: Int = 30, dailyCap: Int = 2) {
+        self.durationMinutes = durationMinutes
+        self.waitSeconds = waitSeconds
+        self.dailyCap = dailyCap
+    }
+}
+
+/// Until `until` (wall clock) *and* until the trusted elapsed ledger reaches `creditedEnd`,
+/// no loosening is accepted. Both must pass, so moving the clock forward doesn't end it early.
+public struct HardLock: Codable, Sendable, Equatable {
+    public var until: Date
+    public var creditedEnd: TimeInterval
+
+    public init(until: Date, creditedEnd: TimeInterval) {
+        self.until = until
+        self.creditedEnd = creditedEnd
+    }
+}
+
+/// Every restriction setting. Stored in the App Group; read by the app and all extensions.
+public struct WallPolicy: Codable, Sendable, Equatable {
+    public static let cooldownRange: ClosedRange<TimeInterval> = 3600...(7 * 86400)
+
+    public var enabledPlatforms: [Platform]
+    public var platformSettings: [Platform: PlatformSettings]
+    public var shields: ShieldSelection
+    public var pass: PassRules
+    /// Delay before a loosening change applies.
+    public var cooldown: TimeInterval
+    /// The ratchet itself. Off on a fresh install (nothing to protect yet); turning it off later
+    /// is a loosening change.
+    public var lockEnabled: Bool
+    public var denyAppRemoval: Bool
+    public var hardLock: HardLock?
+    /// Optional daily signed-recipe fetch. Privacy setting, not a restriction: neutral.
+    public var recipeUpdatesEnabled: Bool
+
+    public init(
+        enabledPlatforms: [Platform] = [.instagram, .youtube],
+        platformSettings: [Platform: PlatformSettings] = [:],
+        shields: ShieldSelection = .init(),
+        pass: PassRules = .init(),
+        cooldown: TimeInterval = 86400,
+        lockEnabled: Bool = false,
+        denyAppRemoval: Bool = false,
+        hardLock: HardLock? = nil,
+        recipeUpdatesEnabled: Bool = false
+    ) {
+        self.enabledPlatforms = enabledPlatforms
+        self.platformSettings = platformSettings
+        self.shields = shields
+        self.pass = pass
+        self.cooldown = cooldown
+        self.lockEnabled = lockEnabled
+        self.denyAppRemoval = denyAppRemoval
+        self.hardLock = hardLock
+        self.recipeUpdatesEnabled = recipeUpdatesEnabled
+    }
+
+    public func settings(for platform: Platform) -> PlatformSettings {
+        platformSettings[platform] ?? .default
+    }
+}
