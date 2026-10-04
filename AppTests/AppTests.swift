@@ -40,8 +40,8 @@ final class ImportFlowTests: XCTestCase {
         XCTAssertFalse(friends.allows(.feed, "user_2500"), "followed only")
     }
 
-    func testAnHTMLExportIsExplainedPlainly() {
-        XCTAssertTrue(ImportExportView.describe(ExportImporter.Failure.htmlExport).contains("JSON"))
+    func testAMissingFollowingListIsExplainedPlainly() {
+        XCTAssertTrue(ImportExportView.describe(ExportImporter.Failure.noFollowingList).contains("following"))
     }
 }
 

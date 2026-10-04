@@ -85,6 +85,19 @@ public struct ImportedPeople: Equatable, Sendable {
     public var owner: String?
     /// Export files that were read (names only, for the summary).
     public var filesRead: [String] = []
+    /// The export's "Contains data you requested from … to …" (HTML exports), if found.
+    public var coverage: Coverage?
+    /// The export had a close-friends file without any profile links (HTML): nothing imported.
+    public var closeFriendsWithoutLinks = false
+
+    public struct Coverage: Equatable, Sendable {
+        public var start: Date
+        public var end: Date
+
+        /// Not "All time": the start is within `ExportImporter.partialSpan` of the end, so people
+        /// followed before the start are missing.
+        public var isPartial: Bool { end.timeIntervalSince(start) < ExportImporter.partialSpan }
+    }
 
     public init() {}
 
@@ -97,8 +110,6 @@ public struct ImportedPeople: Equatable, Sendable {
 /// profile `href`.
 public enum ExportImporter {
     public enum Failure: Error, Equatable {
-        /// The export was requested as HTML; it has to be JSON.
-        case htmlExport
         /// No followers/following files were found.
         case notAnExport
         /// Followers were found but not the following list (rules need it).
@@ -107,46 +118,46 @@ public enum ExportImporter {
         case tooLarge
     }
 
+    /// A date range shorter than this isn't "All time" (QUESTIONS #66).
+    public static let partialSpan: TimeInterval = 3 * 365 * 86400
     public static let maxArchiveBytes = 300 * 1024 * 1024
     public static let maxFileBytes = 64 * 1024 * 1024
 
     public static func importFiles(_ files: [(name: String, data: Data)]) throws -> ImportedPeople {
         var result = ImportedPeople()
-        var sawHTML = false
         for f in files {
             let lower = f.name.lowercased()
             if lower.hasSuffix(".zip") || f.data.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
-                try readArchive(f.data, into: &result, sawHTML: &sawHTML)
+                try readArchive(f.data, into: &result)
             } else {
-                try readFile(f.name, f.data, into: &result, sawHTML: &sawHTML)
+                try readFile(f.name, f.data, into: &result)
             }
         }
-        if result.filesRead.isEmpty { throw sawHTML ? Failure.htmlExport : Failure.notAnExport }
+        if result.filesRead.isEmpty { throw Failure.notAnExport }
         if result.following.isEmpty { throw Failure.noFollowingList }
         return result
     }
 
-    static func readArchive(_ data: Data, into result: inout ImportedPeople, sawHTML: inout Bool) throws {
+    static func readArchive(_ data: Data, into result: inout ImportedPeople) throws {
         guard data.count <= maxArchiveBytes else { throw Failure.tooLarge }
         let zip: ZipReader
         do { zip = try ZipReader(data) } catch { throw Failure.unreadableArchive }
         for entry in zip.entries {
             let base = (entry.name as NSString).lastPathComponent.lowercased()
-            if base.hasSuffix(".html"), kind(of: base.replacingOccurrences(of: ".html", with: ".json")) != nil { sawHTML = true }
             guard kind(of: base) != nil || base == "personal_information.json" else { continue }
             let bytes: Data
             do { bytes = try zip.data(entry, maxSize: maxFileBytes) } catch Inflate.Failure.tooLarge {
                 throw Failure.tooLarge
             } catch { throw Failure.unreadableArchive }
-            try readFile(entry.name, bytes, into: &result, sawHTML: &sawHTML)
+            try readFile(entry.name, bytes, into: &result)
         }
     }
 
-    static func readFile(_ name: String, _ data: Data, into result: inout ImportedPeople, sawHTML: inout Bool) throws {
+    static func readFile(_ name: String, _ data: Data, into result: inout ImportedPeople) throws {
         guard data.count <= maxFileBytes else { throw Failure.tooLarge }
         let base = (name as NSString).lastPathComponent.lowercased()
         if base.hasSuffix(".html") || data.prefix(64).drop(while: { $0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09 }).first == UInt8(ascii: "<") {
-            sawHTML = true
+            readHTML(base, String(decoding: data, as: UTF8.self), into: &result)
             return
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) else { return }
@@ -164,11 +175,77 @@ public enum ExportImporter {
         result.filesRead.append(base)
     }
 
-    /// `followers_1.json`, `followers_2.json`, `following.json`, `close_friends.json`. Other files in
-    /// the same folder (pending requests, recently unfollowed, blocked…) are not connections.
+    /// HTML export (Instagram's default format): usernames from profile links
+    /// (`https://www.instagram.com/<u>` or `…/_u/<u>`), lower-cased and de-duplicated. The header's
+    /// `<time datetime=…>` pair gives the date range. `close_friends.html` has no profile links, so
+    /// nothing is imported from it.
+    static func readHTML(_ base: String, _ html: String, into result: inout ImportedPeople) {
+        guard let list = kind(of: base) else { return }
+        if result.coverage == nil, let c = coverage(in: html) { result.coverage = c }
+        var names = Set<String>()
+        for href in hrefs(in: html) {
+            if let u = usernameFromHref(href) { names.insert(u) }
+        }
+        switch list {
+        case .followers: result.followers.formUnion(names)
+        case .following: result.following.formUnion(names)
+        case .closeFriends:
+            if names.isEmpty {
+                result.closeFriendsWithoutLinks = true
+                return
+            }
+            result.closeFriends = (result.closeFriends ?? []).union(names)
+        }
+        result.filesRead.append(base)
+    }
+
+    /// Every `href="…"` value (double or single quotes), HTML entities for `&` and `/` decoded.
+    static func hrefs(in html: String) -> [String] {
+        var out: [String] = []
+        var rest = html[...]
+        while let r = rest.range(of: "href=", options: .caseInsensitive) {
+            rest = rest[r.upperBound...]
+            guard let q = rest.first, q == "\"" || q == "'" else { continue }
+            let body = rest.dropFirst()
+            guard let end = body.firstIndex(of: q) else { break }
+            out.append(String(body[..<end]).replacingOccurrences(of: "&amp;", with: "&").replacingOccurrences(of: "&#x2F;", with: "/"))
+            rest = body[end...]
+        }
+        return out
+    }
+
+    /// "Contains data you requested from <time datetime=A> to <time datetime=B>": the first two
+    /// `datetime` values, as dates (UTC, day precision).
+    static func coverage(in html: String) -> ImportedPeople.Coverage? {
+        var dates: [Date] = []
+        var rest = html[...]
+        while dates.count < 2, let r = rest.range(of: "datetime=", options: .caseInsensitive) {
+            rest = rest[r.upperBound...]
+            guard let q = rest.first, q == "\"" || q == "'" else { continue }
+            let body = rest.dropFirst()
+            guard let end = body.firstIndex(of: q) else { break }
+            if let d = day(String(body[..<end])) { dates.append(d) }
+            rest = body[end...]
+        }
+        guard dates.count == 2 else { return nil }
+        return .init(start: min(dates[0], dates[1]), end: max(dates[0], dates[1]))
+    }
+
+    /// "2025-10-04T…" or "2025-10-04" → that day at 00:00 UTC.
+    static func day(_ s: String) -> Date? {
+        let parts = s.prefix(10).split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+
+    /// `followers_1.json`/`.html`, `followers_2…`, `following`, `close_friends`. Other files in the
+    /// same folder (pending requests, recently unfollowed, blocked…) are not connections.
     static func kind(of base: String) -> FriendsScanList? {
-        guard base.hasSuffix(".json") else { return nil }
-        let stem = String(base.dropLast(5))
+        let ext = base.hasSuffix(".json") ? 5 : (base.hasSuffix(".html") ? 5 : 0)
+        guard ext > 0 else { return nil }
+        let stem = String(base.dropLast(ext))
         if stem == "followers" || (stem.hasPrefix("followers_") && stem.dropFirst(10).allSatisfy(\.isNumber) && stem.count > 10) {
             return .followers
         }
