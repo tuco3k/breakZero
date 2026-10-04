@@ -11,6 +11,7 @@ struct WallView: View {
     @State private var confirm: LockConfirmation?
     @State private var pickingHardLock = false
     @State private var showExplainer = false
+    @Environment(\.openURL) private var openURL
     /// The explainer opens by itself once, the first time the Wall tab is shown.
     @AppStorage("bz.seenWallExplainer") private var seenExplainer = false
 
@@ -31,7 +32,14 @@ struct WallView: View {
             ForEach(model.policy.enabledPlatforms) { p in platformSection(p) }
             passSection
             Section {
-                Text(versionString)
+                Button { sendFeedback() } label: {
+                    Label(String(localized: "Send feedback"), systemImage: "envelope")
+                }
+            } footer: {
+                Text("Opens an email with the app version, iOS version and phone model. Nothing else is attached.")
+            }
+            Section {
+                Text(BetaInfo.versionLine)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
@@ -317,10 +325,12 @@ struct WallView: View {
         }
     }
 
-    private var versionString: String {
-        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
-        return "breakZero \(v) (\(b))"
+    private func sendFeedback() {
+        guard let url = BetaInfo.feedbackURL(version: BetaInfo.version, build: BetaInfo.build,
+                                             os: UIDevice.current.systemVersion, device: BetaInfo.deviceModel) else { return }
+        openURL(url) { accepted in
+            if !accepted { model.showToast(String(localized: "No mail app. Write to \(BetaInfo.feedbackEmail)"), kind: "feedback") }
+        }
     }
 
     static func searchName(_ m: SearchMode) -> String {

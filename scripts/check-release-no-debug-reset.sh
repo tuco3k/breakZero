@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Proves the Debug-only "Reset all breakZero data" is compiled out of Release builds
+# Proves the Debug-only "Reset all breakZero data" and the breakzero://diag/ links are compiled out of Release builds
 # (ARCHITECTURE.md §4e). Builds Release for the Simulator, unsigned, and fails if the reset's
 # marker string or its Diagnostics label is in the app binary.
 set -euo pipefail
@@ -14,7 +14,7 @@ APP=$(find "$OUT/Build/Products" -name breakZero.app -type d -path '*Release-iph
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 for f in "$APP"/breakZero "$APP"/*.dylib; do [ -f "$f" ] && strings "$f" >> "$TMP/release.txt"; done
-for needle in BZ_DEBUG_RESET_MARKER "Reset all breakZero data"; do
+for needle in BZ_DEBUG_RESET_MARKER "Reset all breakZero data" BZ_DEBUG_DIAG_LINK; do
   if grep -qF "$needle" "$TMP/release.txt"; then
     echo "FAIL: '$needle' found in the Release build ($APP)"; exit 1
   fi
@@ -24,5 +24,7 @@ xcodebuild -scheme breakZero -configuration Debug -destination 'generic/platform
   -derivedDataPath "$OUT-debug" CODE_SIGNING_ALLOWED=NO build >/dev/null
 DAPP=$(find "$OUT-debug/Build/Products" -name breakZero.app -type d -path '*Debug-iphonesimulator*' | head -1)
 for f in "$DAPP"/breakZero "$DAPP"/*.dylib; do [ -f "$f" ] && strings "$f" >> "$TMP/debug.txt"; done
-grep -qF BZ_DEBUG_RESET_MARKER "$TMP/debug.txt" || { echo "FAIL: marker missing from Debug too; check is broken"; exit 1; }
-echo "OK: debug reset is in Debug and absent from Release"
+for marker in BZ_DEBUG_RESET_MARKER BZ_DEBUG_DIAG_LINK; do
+  grep -qF "$marker" "$TMP/debug.txt" || { echo "FAIL: $marker missing from Debug too; check is broken"; exit 1; }
+done
+echo "OK: debug reset and diagnostic links are in Debug and absent from Release"

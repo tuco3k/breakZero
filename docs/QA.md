@@ -172,3 +172,23 @@ profile, posting, notifications, settings, log out and in.
       hold-to-turn-on button
 - [ ] Every Wall setting has one plain line underneath; nowhere does it say "loosen", "tighten",
       "ratchet" or explain things with the word "wall"
+
+## Beta 0.9.0 (on device)
+- [ ] **First run** (delete the app, reinstall): the welcome card opens once; *Start* lands on
+      Instagram's sign-in; the top-right button shows the tab bar; the Wall explainer opens the first
+      time you visit the Wall
+- [ ] Wall bottom: *Send feedback* opens Mail with version, build, iOS and model in the body; the
+      version line reads `breakZero 0.9.0 beta (1)`
+- [ ] **Calm feed** (rule *Everyone I follow*): scroll to the end and wait a minute while Instagram
+      keeps adding: nothing appears below "You're all caught up", the page doesn't move. Debug builds:
+      `breakzero://diag/bottom` from a Mac logs `belowCardFrames` (should be 0)
+- [ ] Switch to an Experimental rule: the label says Experimental with a one-line warning; the list
+      stays hidden until 3 posts are ready, with one steady "Finding posts…" card
+- [ ] **Stories**: from the feed, open a story of someone outside your rules (skips to the next
+      allowed one), then close / swipe down / let the last story end / swipe back: each time you're on
+      the feed again, not Messages. Same from a profile and from a DM thread
+- [ ] **Hide button**: on a post from someone you don't follow, Instagram's *Follow* is fully visible
+      and tappable; *Hide* sits in its own row above the post
+- [ ] **HTML export** (Date range: 1 year): imports; the summary says which dates it covers and asks
+      for All time; Close Friends says to use *Import Close Friends*
+- [ ] `scripts/check-release-no-debug-reset.sh` → OK

@@ -5,6 +5,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @AppStorage("bz.seenWelcome") private var seenWelcome = false
 
     var body: some View {
         @Bindable var model = model
@@ -20,6 +21,11 @@ struct RootView: View {
         }
         // One toast at a time, never in the way of a tap (QUESTIONS #56).
         .overlay(alignment: .top) { ToastOverlay().allowsHitTesting(false) }
+        // First run: what the tabs and the top-right button are, once.
+        .sheet(isPresented: Binding(get: { !seenWelcome }, set: { if !$0 { seenWelcome = true } })) {
+            WelcomeView { seenWelcome = true }
+                .interactiveDismissDisabled()
+        }
     }
 
     private var tabs: some View {
@@ -188,5 +194,38 @@ struct ToastOverlay: View {
                 .accessibilityAddTraits(.updatesFrequently)
                 .animation(.easeInOut(duration: 0.2), value: t.text)
         }
+    }
+}
+
+/// First-run card (beta): how the app is laid out. Shown once.
+struct WelcomeView: View {
+    let done: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Instagram, YouTube and Snapchat open here in calmer views. Sign in inside each one. Your other apps aren't changed.")
+                    item("square.grid.2x2", String(localized: "The button at the top right shows the tab bar: switch apps or open the Wall."))
+                    item("shield.lefthalf.filled", String(localized: "The Wall holds your rules: what's hidden, time limits and the Lock. Stricter is instant; looser waits."))
+                    item("envelope", String(localized: "This is a beta. If something looks wrong, Wall → Send feedback."))
+                }
+                .padding()
+            }
+            .navigationTitle(String(localized: "Welcome to breakZero"))
+            .safeAreaInset(edge: .bottom) {
+                Button(action: done) {
+                    Text("Start").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding()
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private func item(_ symbol: String, _ text: String) -> some View {
+        Label { Text(text) } icon: { Image(systemName: symbol).foregroundStyle(.tint) }
     }
 }

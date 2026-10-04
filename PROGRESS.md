@@ -187,16 +187,32 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   the hold-to-confirm; one plain line under every Wall setting; jargon removed app-wide (tested).
 - [x] Built, 186 Xcode + 138 Node tests, installed and running on the iPhone.
 
+## Stable beta 0.9.0 (2026-10-04, QUESTIONS #65–70, BETA_NOTES.md)
+- [x] **Feed churn.** Measured on the owner's iPhone (counts only): with *My list* almost nothing is
+  approved; hidden posts take no space, so Instagram loads 8 more every ~2 s forever, inserting ~35
+  and removing ~15 elements per batch (skeletons, suggestion carousels, spinners: not posts, so they
+  were visible), with the page height changing 57 times in 20 s and our "Finding posts" card
+  toggling. Fix: calm list (only approved rows, hidden until 3 are ready, one static card) and, after
+  "caught up", CSS hides anything appended after the list. Beta default rule *Everyone I follow*;
+  the others are labelled Experimental. On the phone: 0 of 2,253 frames painted an unapproved post
+  or anything below the card while parked at the end for 40 s.
+- [x] **Stories → Messages.** The skip replaced the feed's history entry with the next story, so
+  close went back to the entry before the feed: the inbox. Skips now push; every way out returns to
+  the origin (history depth, or reload + scroll restore); crash restore uses the current page.
+- [x] **Hide covered Follow**: Hide has its own row now.
+- [x] **HTML export import** with partial-range warning; close_friends.html explained.
+- [x] **Beta readiness**: welcome card, `0.9.0 beta (1)` on the Wall, Send feedback (email),
+  `diag/` links compiled out of Release (release check extended, OK), BETA_NOTES.md, QA section.
+- Tests: Node 150, `swift test` 161 + 15 + 5, Xcode Simulator suite incl. app tests: all pass.
+
 ## Next — what the owner should test on the phone (lite build is enough)
-Installed 2026-10-04 (free team; reinstall after 7 days). Full steps: `docs/QA.md`.
-1. **Search**: the search icon is back; search finds anyone; no Explore grid; try *Only matching*
-   and *Off* (Wall › Instagram › Search).
-2. **Feed**: scroll fast for 2 minutes: nothing appears and vanishes; no jumps. Then Diagnostics ›
-   *F1* › *Watch the feed for flashes* while scrolling: should say 0.
-3. **Stories tray / viewer**: no flash of someone outside your rules.
-4. **What is the Wall?**: read it; check it matches your cooldown; turn the Lock on to see the short
-   version above the hold button.
-From before: real export import, Hidden recently, auto-scroll (optional), limit modes, DMs still work.
+Installed 2026-10-04 (0.9.0 beta). Full steps: `docs/QA.md` › Beta 0.9.0.
+1. **Switch Feed rules to Everyone I follow** (yours is still My list, which is Experimental now).
+2. **Feed**: park at the end for a minute: nothing flashes under "You're all caught up".
+3. **Stories**: open, skip, close / swipe down / back: you're back where you were, never Messages.
+4. **Hide** never covers Follow.
+5. **HTML export**: import yours; check the date warning if it isn't All time.
+6. **Send feedback** opens Mail.
 
 ## Unverified
 Everything compiles on macOS (lite build, 2026-10-01; full build last checked at `0ec5866`). The lite

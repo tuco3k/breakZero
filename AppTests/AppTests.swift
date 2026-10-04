@@ -22,7 +22,7 @@ final class AppTests: XCTestCase {
 /// zip (3,000 accounts) → people data → active feed rules for the Instagram view.
 @MainActor
 final class ImportFlowTests: XCTestCase {
-    func testImportingAnExportTurnsOnTheMutualsRule() async throws {
+    func testImportingAnExportFillsTheListsTheMutualsRuleUses() async throws {
         let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "ig-export-3000", withExtension: "zip"))
         let model = AppModel(launchedAt: Date())
         let start = Date()
@@ -38,6 +38,19 @@ final class ImportFlowTests: XCTestCase {
         XCTAssertEqual(friends.feed?.count, 800 + model.igSettings.feedRules.always.count)
         XCTAssertTrue(friends.allows(.feed, "user_1500"), "followed and following back")
         XCTAssertFalse(friends.allows(.feed, "user_2500"), "followed only")
+    }
+
+    /// "Send feedback": an email to the owner with version, build, iOS and model, nothing else (#70).
+    func testFeedbackEmailCarriesOnlyTheBuildFacts() throws {
+        let url = try XCTUnwrap(BetaInfo.feedbackURL(version: "0.9.0", build: "1", os: "26.2", device: "iPhone18,1"))
+        let c = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(c.scheme, "mailto")
+        XCTAssertEqual(c.path, BetaInfo.feedbackEmail)
+        let items = Dictionary(uniqueKeysWithValues: (c.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(Set(items.keys), ["subject", "body"])
+        XCTAssertTrue(items["subject"]!.contains("0.9.0"))
+        XCTAssertTrue(items["body"]!.hasSuffix("breakZero 0.9.0 (1) · iOS 26.2 · iPhone18,1"))
+        XCTAssertFalse(BetaInfo.deviceModel.isEmpty)
     }
 
     func testAMissingFollowingListIsExplainedPlainly() {

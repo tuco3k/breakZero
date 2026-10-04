@@ -866,18 +866,34 @@ final class AppModel {
             selectedTab = .wall
             showDiagnostics = true
         #if DEBUG
-        case "diag" where url.path == "/churn":
-            // Debug builds only: churn while scrolling, on the feed this person really uses.
-            let unfiltered = url.query?.contains("unfiltered=1") ?? false
-            Task { await runChurnCheck(seconds: 20, unfiltered: unfiltered) }
-        case "diag" where url.path == "/bottom":
-            Task { await runBottomFlashCheck(seconds: 40) }
-        case "diag" where url.path == "/feed-check":
-            // Debug builds only: the F1 check, triggered from a Mac over USB.
-            Task { await runFeedCheck(seconds: 20, openFeed: true) }
+        case "diag":
+            // Debug builds only (scripts/check-release-no-debug-reset.sh checks the marker is absent
+            // from Release): measurements triggered from a Mac over USB.
+            log("\(Self.debugDiagMarker) \(url.path)", source: "diag")
+            handleDiagLink(url)
         #endif
         default:
             break
         }
     }
+
+    #if DEBUG
+    static let debugDiagMarker = "BZ_DEBUG_DIAG_LINK"
+
+    private func handleDiagLink(_ url: URL) {
+        switch url.path {
+        case "/churn":
+            // Debug builds only: churn while scrolling, on the feed this person really uses.
+            let unfiltered = url.query?.contains("unfiltered=1") ?? false
+            Task { await runChurnCheck(seconds: 20, unfiltered: unfiltered) }
+        case "/bottom":
+            Task { await runBottomFlashCheck(seconds: 40) }
+        case "/feed-check":
+            // The F1 check.
+            Task { await runFeedCheck(seconds: 20, openFeed: true) }
+        default:
+            break
+        }
+    }
+    #endif
 }
