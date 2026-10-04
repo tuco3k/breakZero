@@ -26,6 +26,25 @@ public enum Friends {
     }
 }
 
+/// Instagram search while Explore is blocked (QUESTIONS #58–60). Off < matching < normal.
+public enum SearchMode: String, Codable, Sendable, CaseIterable {
+    /// The search entry is hidden and Explore blocked (the behavior before search modes).
+    case off
+    /// Search works, but result rows only show accounts the feed rule allows.
+    case matching
+    /// Search works for every account (default).
+    case normal
+
+    /// Higher = less restrictive.
+    public var openness: Int {
+        switch self {
+        case .off: 0
+        case .matching: 1
+        case .normal: 2
+        }
+    }
+}
+
 /// Who a surface shows.
 public enum Audience: String, Codable, Sendable, CaseIterable {
     /// Everyone I follow.

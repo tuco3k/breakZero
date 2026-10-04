@@ -1,6 +1,6 @@
 {
   "platform": "instagram",
-  "version": 3,
+  "version": 4,
   "minEngine": 1,
   "hosts": ["instagram.com", "www.instagram.com", "m.instagram.com"],
   "authHosts": ["accounts.instagram.com", "www.facebook.com", "m.facebook.com", "accountscenter.instagram.com"],
@@ -46,6 +46,15 @@
     {"id": "ig.heur.suggestedPeople", "toggle": "ig.hideSuggested", "type": "anchorHref", "pattern": "^/explore/people/", "hideAncestor": 3, "routes": ["^/$"]},
     {"id": "ig.heur.exploreLinks", "toggle": "ig.blockExplore", "type": "anchorHref", "pattern": "^/explore/?$", "hideAncestor": 0}
   ],
+  "search": {
+    "toggle": "ig.blockExplore",
+    "entryRules": ["ig.hide.exploreTab", "ig.heur.exploreLinks"],
+    "rootPattern": "^/explore/?$",
+    "searchPath": "/explore/search/",
+    "routes": ["^/explore/search(/|$)"],
+    "gridLink": "^/(p|reels?|tv)/[A-Za-z0-9_-]+",
+    "gridAncestor": 1
+  },
   "friendsFilter": {
     "toggle": "ig.friendsOnly",
     "forceFollowingToggle": "ig.forceFollowing",

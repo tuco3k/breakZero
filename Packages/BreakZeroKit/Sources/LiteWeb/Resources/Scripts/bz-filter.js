@@ -69,7 +69,9 @@
         };
       }),
       friends: compileFriends(r.friendsFilter, active.friends),
-      scan: compileScan(r.friendsFilter)
+      scan: compileScan(r.friendsFilter),
+      // Search "Only accounts that match my feed rules" (QUESTIONS #60): the search pages to filter.
+      searchMatching: active.searchMode === 'matching' && r.search ? (r.search.routes || []).map(re) : null
     };
   }
 
@@ -362,6 +364,33 @@
     if (exempt && !author) return null;
     var back = opened || (exempt ? ctx.highlightFrom : null) || null;
     return { user: exempt ? author : user, author: author, back: back ? '/' + back + '/' : null };
+  }
+
+  /*
+   * Search, "only matching": hide result rows whose account the feed rule doesn't allow. Rows that
+   * become allowed again are shown. Profile links only (hrefs, never text); nav excluded. Returns
+   * how many rows are hidden.
+   */
+  function runSearchFilter(c, doc, path, base) {
+    var f = c.friends;
+    if (!f || !c.searchMatching || !c.searchMatching.some(function (r) { return r.test(path); })) return 0;
+    var anchors = doc.querySelectorAll('main a[href]');
+    var total = doc.querySelectorAll('a[href]').length;
+    var hidden = 0;
+    for (var i = 0; i < anchors.length; i++) {
+      var a = anchors[i];
+      if (a.closest('nav')) continue;
+      var u = profileUser(f, anchorPath(c, a, base));
+      if (!u) continue;
+      var row = safeAncestor(a, 1, doc, total);
+      if (allows(f, 'feed', u)) {
+        if (row.getAttribute(HIDDEN_ATTR) === 'ig.search.match') row.removeAttribute(HIDDEN_ATTR);
+      } else {
+        if (!row.hasAttribute(HIDDEN_ATTR)) row.setAttribute(HIDDEN_ATTR, 'ig.search.match');
+        hidden++;
+      }
+    }
+    return hidden;
   }
 
   /* Next allowed person after `user` in the tray order we saw. */
@@ -955,6 +984,7 @@
       // Backstop: a URL change we didn't see (e.g. a router holding an old reference).
       if (href !== lastHref) onURLChanged(lastHref);
       runHeuristics(c, doc, path, href, post);
+      try { runSearchFilter(c, doc, path, href); } catch (e) { post({ type: 'filterError', id: 'search.match' }); }
       var feedPass = null;
       try {
         feedPass = runFriendsFeed(c, doc, path, href, fs, clock());
@@ -1312,6 +1342,7 @@
     runFriendsStory: runFriendsStory,
     nextFriendStory: nextFriendStory,
     runScan: runScan,
+    runSearchFilter: runSearchFilter,
     runFriendsCanaries: runFriendsCanaries,
     removeCaughtUp: removeCaughtUp,
     install: install

@@ -19,7 +19,7 @@
         },
         {
           "url": "https://www.instagram.com/explore/",
-          "expect": "redirect:/direct/inbox/"
+          "expect": "redirect:/explore/search/"
         },
         {
           "url": "https://www.instagram.com/explore/tags/cats/",
@@ -186,7 +186,7 @@
         },
         {
           "url": "https://www.instagram.com/explore/",
-          "expect": "redirect:/direct/inbox/"
+          "expect": "redirect:/explore/search/"
         }
       ]
     },
@@ -404,7 +404,7 @@
         },
         {
           "url": "https://www.instagram.com/explore/",
-          "expect": "redirect:/direct/inbox/"
+          "expect": "redirect:/explore/search/"
         }
       ]
     },
@@ -921,6 +921,76 @@
       "steps": [
         {
           "url": "https://www.instagram.com/stories/brand/1/",
+          "expect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "instagram search normal (default): search box and results only",
+      "platform": "instagram",
+      "steps": [
+        {
+          "url": "https://www.instagram.com/explore/",
+          "expect": "redirect:/explore/search/"
+        },
+        {
+          "url": "https://www.instagram.com/explore/search/",
+          "expect": "allow",
+          "fresh": true
+        },
+        {
+          "url": "https://www.instagram.com/explore/search/keyword/?q=cats",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/someone/",
+          "expect": "allow"
+        },
+        {
+          "url": "https://www.instagram.com/explore/tags/cats/",
+          "expect": "redirect:/direct/inbox/"
+        },
+        {
+          "url": "https://www.instagram.com/explore/locations/123/",
+          "expect": "redirect:/direct/inbox/",
+          "fresh": true
+        },
+        {
+          "url": "https://www.instagram.com/explore/people/",
+          "expect": "redirect:/direct/inbox/",
+          "fresh": true
+        }
+      ]
+    },
+    {
+      "name": "instagram search off: like before search modes",
+      "platform": "instagram",
+      "settings": {
+        "searchMode": "off"
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/explore/",
+          "expect": "redirect:/direct/inbox/"
+        },
+        {
+          "url": "https://www.instagram.com/explore/search/",
+          "expect": "allow",
+          "fresh": true
+        }
+      ]
+    },
+    {
+      "name": "instagram search with Explore unblocked: modes don't apply",
+      "platform": "instagram",
+      "settings": {
+        "toggles": {
+          "ig.blockExplore": false
+        }
+      },
+      "steps": [
+        {
+          "url": "https://www.instagram.com/explore/",
           "expect": "allow"
         }
       ]

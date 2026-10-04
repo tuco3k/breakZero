@@ -56,10 +56,29 @@ function active(platform, settings = {}, signedIn = true, shortForm = 'togglesDe
     canaries: keep(r.canaries),
     resourceBlocks: keep(r.resourceBlocks)
   });
+  // Mirrors ActiveRecipe's search modes (QUESTIONS #58): default normal.
+  let searchMode;
+  const sc = r.search;
+  if (sc && on(sc.toggle)) {
+    searchMode = settings.searchMode || 'normal';
+    if (searchMode !== 'off') {
+      const entry = new Set(sc.entryRules);
+      out.routes = [{ id: 'ig.search.root', toggle: sc.toggle, pattern: sc.rootPattern, action: 'redirect', to: sc.searchPath }]
+        .concat(out.routes.filter((x) => !entry.has(x.id)));
+      out.hide = out.hide.filter((x) => !entry.has(x.id));
+      out.heuristics = out.heuristics.filter((x) => !entry.has(x.id)).concat([{
+        id: 'ig.search.grid', toggle: sc.toggle, type: 'anchorHref', pattern: sc.gridLink, hideAncestor: sc.gridAncestor, routes: sc.routes
+      }]);
+      out.canaries = out.canaries.filter((x) => !entry.has(x.id)).concat(sc.routes.map((route, i) => ({
+        id: 'ig.search.gridCanary.' + i, toggle: sc.toggle, route, mustNotExist: { anchorHref: sc.gridLink }
+      })));
+    }
+  }
   let landingKey = settings.landing && r.landing.options[settings.landing] ? settings.landing : r.landing.default;
   if (!signedIn && r.landing.signedOut && r.landing.options[r.landing.signedOut]) landingKey = r.landing.signedOut;
   const result = { recipe: out, landingPath: r.landing.options[landingKey], shortForm };
   if (activeFriends) result.friends = activeFriends;
+  if (searchMode) result.searchMode = searchMode;
   return result;
 }
 

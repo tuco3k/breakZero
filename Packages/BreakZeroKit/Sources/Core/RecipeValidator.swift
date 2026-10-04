@@ -151,6 +151,16 @@ public enum RecipeValidator {
                 checkRegex(r, "friendsFilter.scanRoutes.\(list)")
             }
         }
+        if let sc = recipe.search {
+            check(toggleIDs.contains(sc.toggle), "search: unknown toggle \(sc.toggle)")
+            checkRegex(sc.rootPattern, "search.rootPattern")
+            check(sc.rootPattern.hasPrefix("^"), "search.rootPattern must be anchored with ^")
+            check(sc.searchPath.hasPrefix("/") && !sc.searchPath.contains("{"), "search.searchPath must be a path")
+            check(!sc.routes.isEmpty, "search.routes is empty")
+            for r in sc.routes { checkRegex(r, "search.routes") }
+            checkRegex(sc.gridLink, "search.gridLink")
+            check((0...8).contains(sc.gridAncestor), "search.gridAncestor out of range 0...8")
+        }
         check(Set(ruleIDs).count == ruleIDs.count, "duplicate rule ids")
 
         if !problems.isEmpty { throw RecipeValidationError(problems: problems) }

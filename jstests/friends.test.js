@@ -466,3 +466,40 @@ test('allow zones and profiles are untouched while feed rules are on', () => {
   assert.equal(profile.nav.length, 0, "a non-mutual's profile opens");
   assert.doesNotMatch(profile.doc.querySelector('style[data-bz]').textContent, /data-bz-fr/);
 });
+
+// ------------------------------------------------------------------ search modes (QUESTIONS #58–60)
+
+test('search Normal: results show everyone; the post/reel grid on the search page is hidden', () => {
+  const c = compiled();
+  const { window } = dom('ig-search.html', IG + '/explore/search/');
+  const doc = window.document;
+  bz.runHeuristics(c, doc, '/explore/search/', window.location.href, () => {});
+  bz.runSearchFilter(c, doc, '/explore/search/', window.location.href);
+  const hiddenEl = (id) => doc.getElementById(id).closest('[data-bz-hidden]') !== null;
+  assert.ok(!hiddenEl('row-alice') && !hiddenEl('row-brand') && !hiddenEl('row-fan'), 'all accounts');
+  assert.ok(hiddenEl('grid-post') && hiddenEl('grid-reel'), 'no Explore grid');
+  assert.ok(!hiddenEl('tab-search'), 'the search entry stays');
+  assert.deepEqual(bz.runCanaries(c, doc, '/explore/search/', window.location.href, () => {}), []);
+});
+
+test('search Only matching: rows for accounts the feed rule hides are hidden; re-shown when allowed', () => {
+  const c = compiled({ searchMode: 'matching' });
+  const { window } = dom('ig-search.html', IG + '/explore/search/');
+  const doc = window.document;
+  assert.equal(bz.runSearchFilter(c, doc, '/explore/search/', window.location.href), 2);
+  const rowHidden = (id) => doc.getElementById(id).getAttribute('data-bz-hidden') === 'ig.search.match';
+  assert.ok(!rowHidden('row-alice'), 'mutual');
+  assert.ok(rowHidden('row-brand'), 'following only');
+  assert.ok(rowHidden('row-fan'), 'follower only');
+  assert.ok(!rowHidden('row-tag'), 'not an account');
+  const wider = compiled({ searchMode: 'matching', feedRules: { feed: 'everyone' } });
+  bz.runSearchFilter(wider, doc, '/explore/search/', window.location.href);
+  assert.ok(!rowHidden('row-brand'), 'now allowed: shown again');
+  assert.equal(bz.runSearchFilter(c, doc, '/direct/inbox/', window.location.href), 0, 'search pages only');
+});
+
+test('search Only matching without mutuals data hides nothing', () => {
+  const c = compiled({ searchMode: 'matching' }, null);
+  const { window } = dom('ig-search.html', IG + '/explore/search/');
+  assert.equal(bz.runSearchFilter(c, window.document, '/explore/search/', window.location.href), 0);
+});

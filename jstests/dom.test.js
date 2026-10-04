@@ -13,7 +13,7 @@ test('IG home: heuristics hide reel links, reels/explore tabs and suggestions, k
   bz.runHeuristics(c, doc, '/', window.location.href, noop);
   assert.ok(hidden(doc, 'reel-link'));
   assert.ok(hidden(doc, 'tab-reels'));
-  assert.ok(hidden(doc, 'tab-explore'));
+  assert.ok(!hidden(doc, 'tab-explore'), 'search is Normal by default: its entry (/explore/) stays (QUESTIONS #58)');
   assert.ok(hidden(doc, 'sugg-wrap'), 'suggested people hidden 3 levels up');
   assert.ok(!hidden(doc, 'post-friend'));
   assert.ok(!hidden(doc, 'tab-direct'));
@@ -128,12 +128,13 @@ test('install: reel from DM plays once; pushState to the next reel bounces to th
   assert.deepEqual(replaced, ['/direct/t/123/']);
 });
 
-test('install: SPA push to /reels/ and /explore/ redirects to landing; style injected', () => {
+test('install: SPA push to /reels/ and /explore/tags/ redirects to landing, /explore/ to search; style injected', () => {
   const { window, replaced } = installed('ig-home.html', 'https://www.instagram.com/');
   assert.ok(window.document.querySelector('style[data-bz="style"]'));
   window.history.pushState({}, '', '/reels/');
+  window.history.pushState({}, '', '/explore/tags/cats/');
   window.history.pushState({}, '', '/explore/');
-  assert.deepEqual(replaced, ['/direct/inbox/', '/direct/inbox/']);
+  assert.deepEqual(replaced, ['/direct/inbox/', '/direct/inbox/', '/explore/search/']);
   window.history.pushState({}, '', '/friend/');
   assert.equal(window.location.pathname, '/friend/');
 });
@@ -212,4 +213,11 @@ test('mediaReport: blob vs url source, error code passthrough', () => {
   const el = { tagName: 'VIDEO', currentSrc: 'blob:https://m.youtube.com/abc', error: { code: 4 } };
   assert.deepEqual(bz.mediaReport('error', el), { type: 'media', event: 'error', kind: 'video', code: 4, source: 'blob' });
   assert.equal(bz.mediaReport('playing', { tagName: 'AUDIO', src: 'https://x/y.mp3', error: null }).source, 'url');
+});
+
+test('IG search Off: the search entry is hidden like before (QUESTIONS #58)', () => {
+  const c = bz.compile(active('instagram', { searchMode: 'off' }));
+  const { window } = dom('ig-home.html', 'https://www.instagram.com/');
+  bz.runHeuristics(c, window.document, '/', window.location.href, noop);
+  assert.ok(hidden(window.document, 'tab-explore'));
 });

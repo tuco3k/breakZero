@@ -36,6 +36,8 @@ public enum PolicyChange: Codable, Sendable, Equatable {
     case addPerson(Platform, PeopleList, username: String)
     case removePerson(Platform, PeopleList, username: String)
     case setProfileStories(Platform, Bool)
+    /// Search while Explore is blocked: Off < Only matching < Normal.
+    case setSearchMode(Platform, SearchMode)
     /// rev. 1 names for My list; kept so pending changes saved by that build still load.
     case addFriend(Platform, username: String)
     case removeFriend(Platform, username: String)
@@ -68,6 +70,7 @@ public enum PolicyChange: Codable, Sendable, Equatable {
         case let .addPerson(p, list, u), let .removePerson(p, list, u): "person/\(p.rawValue)/\(list.rawValue)/\(u)"
         case let .addFriend(p, u), let .removeFriend(p, u): "person/\(p.rawValue)/myList/\(u)"
         case let .setProfileStories(p, _): "profileStories/\(p.rawValue)"
+        case let .setSearchMode(p, _): "search/\(p.rawValue)"
         }
     }
 }
@@ -257,6 +260,8 @@ public struct Ratchet: Sendable {
         case let .setProfileStories(p, on):
             guard feedRulesOn(p, policy), on != policy.settings(for: p).profileStories else { return .neutral }
             return on ? .loosening : .tightening
+        case let .setSearchMode(p, mode):
+            return cmp(mode.openness, policy.settings(for: p).search.openness, looserWhenGreater: true)
         case let .setHardLock(until):
             switch (policy.hardLock?.until, until) {
             case (nil, nil): return .neutral
@@ -444,6 +449,7 @@ public struct Ratchet: Sendable {
         case let .addFriend(p, u): edit(p) { $0.edit(.myList) { if !$0.contains(u) { $0.append(u); $0.sort() } } }
         case let .removeFriend(p, u): edit(p) { $0.edit(.myList) { $0.removeAll { $0 == u } } }
         case let .setProfileStories(p, on): edit(p) { $0.feedRules.profileStories = on }
+        case let .setSearchMode(p, mode): edit(p) { $0.searchMode = mode }
         }
     }
 }

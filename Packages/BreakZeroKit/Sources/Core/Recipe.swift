@@ -36,6 +36,8 @@ public struct Recipe: Codable, Sendable, Equatable {
     public var userAgent: String?
     /// "Old Instagram": how to find posts, authors and stories (ARCHITECTURE.md §4c). nil = none.
     public var friendsFilter: FriendsFilter?
+    /// How search is reached while the recommendation surfaces are blocked (search modes). nil = none.
+    public var search: SearchConfig?
 
     public init(
         platform: String, version: Int, minEngine: Int, hosts: [String], authHosts: [String] = [],
@@ -43,7 +45,7 @@ public struct Recipe: Codable, Sendable, Equatable {
         hide: [HideRule] = [], heuristics: [Heuristic] = [], behaviors: [Behavior] = [],
         allowZones: [String] = [], canaries: [Canary] = [], resourceBlocks: [ResourceBlock] = [],
         session: Session? = nil, shortFormRoutes: [String] = [], userAgent: String? = nil,
-        friendsFilter: FriendsFilter? = nil
+        friendsFilter: FriendsFilter? = nil, search: SearchConfig? = nil
     ) {
         self.platform = platform
         self.version = version
@@ -64,6 +66,7 @@ public struct Recipe: Codable, Sendable, Equatable {
         self.shortFormRoutes = shortFormRoutes
         self.userAgent = userAgent
         self.friendsFilter = friendsFilter
+        self.search = search
     }
 
     // Optional arrays default to empty so recipe authors can omit them.
@@ -88,6 +91,7 @@ public struct Recipe: Codable, Sendable, Equatable {
         shortFormRoutes = try c.decodeIfPresent([String].self, forKey: .shortFormRoutes) ?? []
         userAgent = try c.decodeIfPresent(String.self, forKey: .userAgent)
         friendsFilter = try c.decodeIfPresent(FriendsFilter.self, forKey: .friendsFilter)
+        search = try c.decodeIfPresent(SearchConfig.self, forKey: .search)
     }
 
     public struct Session: Codable, Sendable, Equatable {
@@ -287,6 +291,34 @@ public struct Recipe: Codable, Sendable, Equatable {
 }
 
 extension Recipe {
+    /// Search while recommendations are blocked: the search entry stays, its page shows only the
+    /// search box and results, never a post grid. Applied by `ActiveRecipe` per `SearchMode`.
+    public struct SearchConfig: Codable, Sendable, Equatable {
+        /// Search modes only matter while this toggle (blocking Explore) is on.
+        public var toggle: String
+        /// Rules that hide the search entry while search is off; dropped when it's on.
+        public var entryRules: [String]
+        /// The Explore root, sent straight to `searchPath` instead of showing its grid.
+        public var rootPattern: String
+        public var searchPath: String
+        /// Path regexes of search pages (grid hidden there; "matching" filters results there).
+        public var routes: [String]
+        /// Path regex of a grid item (post/reel) on a search page.
+        public var gridLink: String
+        public var gridAncestor: Int
+
+        public init(toggle: String, entryRules: [String], rootPattern: String, searchPath: String, routes: [String],
+                    gridLink: String, gridAncestor: Int = 1) {
+            self.toggle = toggle
+            self.entryRules = entryRules
+            self.rootPattern = rootPattern
+            self.searchPath = searchPath
+            self.routes = routes
+            self.gridLink = gridLink
+            self.gridAncestor = gridAncestor
+        }
+    }
+
     /// Data for the friends-only feed and stories. Selectors and regexes only; the page script
     /// (`bz-filter.js`) and `ActiveRecipe` interpret them. Matching is on `href`s, never text.
     public struct FriendsFilter: Codable, Sendable, Equatable {

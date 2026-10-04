@@ -78,7 +78,7 @@ test('catches a navigation that bypassed the guard (unhooked router), on the nex
 
 test('hashchange and pageshow trigger an immediate check', () => {
   const { window, raw, replaced } = page('https://www.instagram.com/');
-  raw.push.call(window.history, {}, '', '/explore/');
+  raw.push.call(window.history, {}, '', '/explore/tags/cats/');
   window.dispatchEvent(new window.Event('hashchange'));
   assert.deepEqual(replaced, ['/direct/inbox/']);
 });
@@ -122,7 +122,7 @@ test('daily limit / schedule: whole platform blocked → landing, then quiet whi
 
 test('one violation per bypass, with a toast message, then debounced for 2 s', () => {
   const { window, raw, replaced, posts, ctl } = page('https://www.instagram.com/');
-  raw.push.call(window.history, {}, '', '/explore/');
+  raw.push.call(window.history, {}, '', '/explore/tags/cats/');
   ctl.watchdog();
   ctl.watchdog();
   ctl.watchdog();
@@ -144,7 +144,7 @@ test('a bypassed move from a DM thread to a reel is still granted (no false alar
 
 test('a broken watchdog tick is reported, never thrown into the page', () => {
   const { window, raw, posts, ctl } = page('https://www.instagram.com/');
-  raw.push.call(window.history, {}, '', '/explore/');
+  raw.push.call(window.history, {}, '', '/explore/tags/cats/');
   window.document.querySelectorAll = () => { throw new Error('boom'); };
   assert.doesNotThrow(() => ctl.watchdog());
   assert.ok(posts.some((p) => p.type === 'filterError' && p.id === 'watchdog'));

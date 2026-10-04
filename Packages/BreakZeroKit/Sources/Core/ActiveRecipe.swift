@@ -14,15 +14,18 @@ public struct PlatformSettings: Codable, Sendable, Equatable {
     public var friends: [String]
     /// Feed rules: who the feed and stories show, always/never lists (ARCHITECTURE.md §4c).
     public var feedRules: FeedRules
+    /// Search while Explore is blocked. nil = Normal (QUESTIONS #58).
+    public var searchMode: SearchMode?
 
     public init(toggles: [String: Bool] = [:], landing: String? = nil, customBlocks: [String] = [], customHides: [String] = [],
-                friends: [String] = [], feedRules: FeedRules = FeedRules()) {
+                friends: [String] = [], feedRules: FeedRules = FeedRules(), searchMode: SearchMode? = nil) {
         self.toggles = toggles
         self.landing = landing
         self.customBlocks = customBlocks
         self.customHides = customHides
         self.friends = friends
         self.feedRules = feedRules
+        self.searchMode = searchMode
     }
 
     // Missing keys default, so settings saved by an older build still load.
@@ -40,7 +43,10 @@ public struct PlatformSettings: Codable, Sendable, Equatable {
             // that way instead of silently widening to all mutuals (QUESTIONS #47).
             feedRules = friends.isEmpty ? FeedRules() : FeedRules(feed: .myList, stories: .myList)
         }
+        searchMode = try c.decodeIfPresent(SearchMode.self, forKey: .searchMode)
     }
+
+    public var search: SearchMode { searchMode ?? .normal }
 
     public static let `default` = PlatformSettings()
 
@@ -59,6 +65,8 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
     public var shortForm: ShortFormMode
     /// Feed rules, when they filter anything (the page script and the story gate read this).
     public var friends: ActiveFriends?
+    /// Search mode, when the recipe has search and Explore is blocked (the page reads "matching").
+    public var searchMode: SearchMode?
 
     /// - signedIn: false picks the recipe's signed-out landing (YouTube: search).
     /// - shortForm: `.budgetAllowed` drops every rule marked `shortForm`; `.forcedBlocked` keeps
@@ -106,7 +114,29 @@ public struct ActiveRecipe: Codable, Sendable, Equatable {
                                              closePath: f.feedPath(forceFollowing: force))
             }
         }
-        r.routes = custom + r.routes
+        // Search (QUESTIONS #58): with Explore blocked and search not Off, the search entry stays, the
+        // Explore root goes straight to the search page, and grids on search pages are hidden.
+        var searchRoutes: [Recipe.RouteRule] = []
+        self.searchMode = nil
+        if let sc = recipe.search, on(sc.toggle) {
+            self.searchMode = settings.search
+            if settings.search != .off {
+                let entry = Set(sc.entryRules)
+                r.routes.removeAll { entry.contains($0.id) }
+                r.hide.removeAll { entry.contains($0.id) }
+                r.heuristics.removeAll { entry.contains($0.id) }
+                r.canaries.removeAll { entry.contains($0.id) }
+                searchRoutes = [Recipe.RouteRule(id: "ig.search.root", toggle: sc.toggle, pattern: sc.rootPattern,
+                                                 action: .redirect, to: sc.searchPath)]
+                r.heuristics.append(Recipe.Heuristic(id: "ig.search.grid", toggle: sc.toggle, type: .anchorHref,
+                                                     pattern: sc.gridLink, hideAncestor: sc.gridAncestor, routes: sc.routes))
+                r.canaries.append(contentsOf: sc.routes.enumerated().map { i, route in
+                    Recipe.Canary(id: "ig.search.gridCanary.\(i)", toggle: sc.toggle, route: route,
+                                  mustNotExist: .init(anchorHref: sc.gridLink))
+                })
+            }
+        }
+        r.routes = custom + searchRoutes + r.routes
         r.hide += settings.customHides.enumerated().map { i, selector in
             Recipe.HideRule(id: "custom.hide.\(i)", toggle: Self.customToggle, selector: selector)
         }
