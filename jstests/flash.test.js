@@ -19,7 +19,7 @@ function page(url = IG + '/?variant=following', fixture = 'ig-feed-friends.html'
   const { window } = dom(fixture, url);
   window.webkit = { messageHandlers: { bz: { postMessage: () => {} } } };
   const ctl = bz.install(window, {
-    active: active('instagram', {}, true, 'togglesDecide', PEOPLE),
+    active: active('instagram', { feedRules: { feed: 'mutuals', stories: 'mutuals' } }, true, 'togglesDecide', PEOPLE),
     state: { grant: null },
     strings: { caughtUp: 'Listo', finding: 'Buscando', hide: 'Ocultar' },
     limits: { blocked: null }
@@ -140,7 +140,7 @@ test('stories tray: a non-mutual circle is never painted', async () => {
 
 test('removing a shown post above the screen keeps the scroll position (manual anchoring)', () => {
   const { window, doc } = page();
-  const c = bz.compile(active('instagram', {}, true, 'togglesDecide', PEOPLE));
+  const c = bz.compile(active('instagram', { feedRules: { feed: 'mutuals', stories: 'mutuals' } }, true, 'togglesDecide', PEOPLE));
   const alice = doc.getElementById('p-alice');
   const bob = doc.getElementById('p-bob');
   bz.screenRoots(c, doc, '/', window.location.href, [doc.documentElement], window);
@@ -187,7 +187,7 @@ test('diagnostics: structure report and the painted-unapproved counter', async (
   assert.ok(r.firstPostShape.includes('article'), r.firstPostShape);
   assert.equal(r.permalinksOutsidePosts, 0);
   assert.ok(!JSON.stringify(r).includes('alice'), 'no usernames in the report');
-  const c = bz.compile(active('instagram', {}, true, 'togglesDecide', PEOPLE));
+  const c = bz.compile(active('instagram', { feedRules: { feed: 'mutuals', stories: 'mutuals' } }, true, 'togglesDecide', PEOPLE));
   assert.equal(bz.paintedUnapproved(c, doc, '/', window.location.href), 0);
 });
 
@@ -207,7 +207,7 @@ test('not "caught up" just because nothing loads while you are not at the bottom
   Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => 5000 });
   Object.defineProperty(window, 'innerHeight', { configurable: true, get: () => 800 });
   Object.defineProperty(window, 'scrollY', { configurable: true, get: () => 0, set: () => {} });
-  const c = bz.compile(active('instagram', {}, true, 'togglesDecide', PEOPLE));
+  const c = bz.compile(active('instagram', { feedRules: { feed: 'mutuals', stories: 'mutuals' } }, true, 'togglesDecide', PEOPLE));
   const fs = { postCount: -1, lastNewPostAt: 0, trayOrder: [], card: null, cardHref: null };
   bz.runFriendsFeed(c, doc, '/', window.location.href, fs, 0, window);
   assert.equal(bz.runFriendsFeed(c, doc, '/', window.location.href, fs, 60000, window).caughtUp, false, 'a minute idle at the top');
@@ -215,4 +215,75 @@ test('not "caught up" just because nothing loads while you are not at the bottom
   bz.runFriendsFeed(c, doc, '/', window.location.href, fs, 61000, window);
   assert.equal(bz.runFriendsFeed(c, doc, '/', window.location.href, fs, 66000, window).caughtUp, true, 'idle at the bottom');
   assert.ok(ctl);
+});
+
+// ------------------------------------------------------------------ calm list (owner, 2026-10-04)
+
+function calmPage() {
+  return page(IG + '/', 'ig-feed-calm.html');
+}
+const skeleton = (id) => `<div class="row skel" id="${id}"><div style="height:400px"></div></div>`;
+const carousel = (id) => `<div class="row" id="${id}"><a href="/stranger1/">s1</a><a href="/stranger2/">s2</a><button>Follow</button></div>`;
+
+test('calm list: nothing shows until 3 approved posts are ready; then only approved rows', async () => {
+  const { window, doc } = calmPage();
+  const list = doc.getElementById('list');
+  const notes = [];
+  new window.MutationObserver((recs) => recs.forEach((r) => {
+    r.addedNodes.forEach((n) => n.nodeType === 1 && n.getAttribute('data-bz') === 'finding' && notes.push('+'));
+    r.removedNodes.forEach((n) => n.nodeType === 1 && n.getAttribute('data-bz') === 'finding' && notes.push('-'));
+  })).observe(doc.documentElement, { childList: true, subtree: true });
+  list.insertAdjacentHTML('beforeend', skeleton('s1') + postHTML('alice') + postHTML('brand') + carousel('c1') + postHTML('carol'));
+  await new Promise((r) => setTimeout(r, 50));   // a few frames: the tick places the note
+  const rowsVisible = () => [...list.children].filter((el) => visible(window, el) && !el.hasAttribute('data-bz')).length;
+  assert.equal(rowsVisible(), 0, 'two approved: the list waits');
+  assert.ok(visible(window, doc.getElementById('header')), 'outside the list is untouched');
+  list.insertAdjacentHTML('beforeend', skeleton('s2') + postHTML('bob.b'));
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(rowsVisible(), 3, 'three approved rows, nothing else');
+  assert.equal(visible(window, doc.getElementById('s1')), false, 'skeleton');
+  assert.equal(visible(window, doc.getElementById('c1')), false, 'suggestion carousel');
+  for (let burst = 0; burst < 5; burst++) {
+    list.insertAdjacentHTML('beforeend', skeleton('k' + burst) + carousel('cc' + burst) + postHTML('x' + burst) + postHTML('alice'));
+    await nextTask();
+    assert.deepEqual(flashes(window), []);
+    assert.equal(visible(window, doc.getElementById('k' + burst)), false);
+    assert.equal(visible(window, doc.getElementById('cc' + burst)), false);
+  }
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(notes, ['+', '-'], 'the note appeared once and went away once');
+});
+
+test('calm list: caught up with fewer than 3 approved still shows them', async () => {
+  const { window, doc, ctl } = calmPage();
+  const list = doc.getElementById('list');
+  list.insertAdjacentHTML('beforeend', postHTML('alice') + [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].map((i) => postHTML('x' + i)).join(''));
+  await nextTask();
+  ctl.tick();
+  const alice = posts(doc).find((p) => author(p) === 'alice');
+  assert.ok(painted(window, alice), 'revealed once caught up');
+  assert.ok(doc.querySelector('[data-bz="caughtup"]'));
+  assert.equal(doc.querySelector('[data-bz="finding"]'), null);
+});
+
+test('caught up: a batch the site appends later, in a new container after the list, is never painted', async () => {
+  const { window, doc, ctl } = calmPage();
+  const list = doc.getElementById('list');
+  list.insertAdjacentHTML('beforeend', postHTML('alice') + postHTML('bob.b') + postHTML('carol') +
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].map((i) => postHTML('x' + i)).join(''));
+  await nextTask();
+  ctl.tick();
+  assert.ok(doc.querySelector('[data-bz="caughtup"]'));
+  for (let k = 0; k < 4; k++) {
+    // Every 5–10 s the site adds more: a new block after the list, and rows at the list's end.
+    doc.querySelector('main').insertAdjacentHTML('beforeend',
+      `<div id="b${k}">${skeleton('bs' + k)}${carousel('bc' + k)}${postHTML('y' + k)}${postHTML('alice')}</div>`);
+    list.insertAdjacentHTML('beforeend', postHTML('z' + k) + skeleton('ls' + k));
+    // Checked before the script has even seen the change: CSS alone keeps it hidden.
+    assert.equal(visible(window, doc.getElementById('b' + k)), false, 'new block after the list');
+    assert.equal(visible(window, doc.getElementById('ls' + k)), false, 'new rows after the card');
+    await nextTask();
+    assert.deepEqual(flashes(window), []);
+  }
+  assert.ok(visible(window, doc.getElementById('header')), 'above the list is untouched');
 });

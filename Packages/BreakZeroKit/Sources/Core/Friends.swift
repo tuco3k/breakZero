@@ -94,7 +94,9 @@ public struct FeedRules: Codable, Sendable, Equatable {
         profileStories = try c.decodeIfPresent(Bool.self, forKey: .profileStories)
     }
 
-    public static let defaultAudience = Audience.mutuals
+    /// Beta default (QUESTIONS #65): everyone you follow. Narrow rules hide most of the Following
+    /// feed, so it keeps loading more; they're marked Experimental in the app.
+    public static let defaultAudience = Audience.everyone
 }
 
 extension PlatformSettings {

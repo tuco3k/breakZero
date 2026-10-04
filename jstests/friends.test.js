@@ -13,9 +13,11 @@ const PEOPLE = {
   following: ['alice', 'bob.b', 'carol', 'brand', 'celeb']
 };
 const ok = (doc, id) => doc.getElementById(id).getAttribute('data-bz-fr') === 'ok';
+// These tests exercise the Mutuals rule; the app's default is Everyone I follow (QUESTIONS #65).
+const mutuals = (s = {}) => ({ ...s, feedRules: { feed: 'mutuals', stories: 'mutuals', ...(s.feedRules || {}) } });
 
 function compiled(settings = {}, people = PEOPLE) {
-  return bz.compile(active('instagram', settings, true, 'togglesDecide', people));
+  return bz.compile(active('instagram', mutuals(settings), true, 'togglesDecide', people));
 }
 
 function feedState() {
@@ -25,6 +27,7 @@ function feedState() {
 /* A live page with the script installed; navigation and timers are recorded, not performed. */
 function page(fixture, url, opts = {}) {
   const { window } = dom(fixture, url);
+  for (const [k, v] of Object.entries(opts.session || {})) window.sessionStorage.setItem(k, JSON.stringify(v));
   const posts = [];
   const nav = [];
   const timers = [];
@@ -32,7 +35,7 @@ function page(fixture, url, opts = {}) {
   let now = opts.now || 1_000_000;
   const scrolls = [];
   const ctl = bz.install(window, {
-    active: active('instagram', opts.settings || {}, true, 'togglesDecide', opts.people === undefined ? PEOPLE : opts.people),
+    active: active('instagram', mutuals(opts.settings), true, 'togglesDecide', opts.people === undefined ? PEOPLE : opts.people),
     state: opts.state || { grant: null },
     strings: { needsUpdate: 'x', report: 'y', caughtUp: 'Listo', hide: 'Ocultar' },
     limits: { blocked: null },
@@ -41,6 +44,7 @@ function page(fixture, url, opts = {}) {
   }, {
     replace: (u) => nav.push(['replace', u]),
     assign: (u) => nav.push(['assign', u]),
+    go: (n) => nav.push(['go', n]),
     setInterval: () => 0,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].cancelled = true; },
@@ -156,6 +160,8 @@ test('one-tap hide: shown posts get our button; tapping it hides the author at o
   assert.equal(btn.getAttribute('aria-label'), 'Ocultar @alice');
   assert.equal(p.doc.querySelector('#p-brand [data-bz="hidewrap"]'), null, 'not on hidden posts');
   assert.equal(p.doc.querySelector('#p-alice').firstElementChild.getAttribute('data-bz'), 'hidewrap', 'our own wrapper, first child');
+  // Never laid over the site's header (it covered "Follow" on people you don't follow).
+  assert.doesNotMatch(btn.style.cssText + btn.parentNode.style.cssText, /absolute|height:\s*0/);
   btn.click();
   assert.deepEqual(sent(p, 'hideAccount'), [{ type: 'hideAccount', username: 'alice' }]);
   p.ctl.tick();
@@ -189,7 +195,13 @@ test('caught up after N hidden posts in a row: card after the last shown post, t
   const card = doc.querySelector('[data-bz="caughtup"]');
   assert.equal(card.textContent, 'Listo');
   assert.equal(card.previousElementSibling.querySelector('article').id, 'p-bob');
-  assert.equal(doc.getElementById('loader').getAttribute('data-bz-hidden'), 'ig.caughtUp');
+  // What follows the list is hidden by CSS on its marked ancestors: later additions too.
+  assert.ok(list.hasAttribute('data-bz-cu-after'));
+  const style = doc.createElement('style');
+  style.textContent = bz.cssFor(c, '/');
+  doc.head.appendChild(style);
+  assert.equal(window.getComputedStyle(doc.getElementById('loader')).display, 'none');
+  style.remove();
   assert.equal(doc.getElementById('tabbar').getAttribute('data-bz-hidden'), null, 'never outside <main>');
   bz.removeCaughtUp(doc, fs);
   assert.equal(doc.querySelector('[data-bz="caughtup"]'), null);
@@ -278,7 +290,78 @@ test('from the feed: a hidden story skips to the next allowed one in the tray, e
   p.window.history.pushState({}, '', '/stories/brand/2/');
   assert.deepEqual(p.nav.at(-1), ['replace', '/stories/bob.b/']);
   p.window.history.pushState({}, '', '/stories/celeb/3/');
-  assert.deepEqual(p.nav.at(-1), ['replace', '/?variant=following'], 'nobody allowed after celeb: close');
+  assert.deepEqual(p.nav.at(-1), ['go', -1], 'nobody allowed after celeb: back to the feed entry, scroll intact');
+});
+
+// Story origin (beta brief item 2): leaving a story returns exactly where it was opened.
+const origin = (p) => JSON.parse(p.window.sessionStorage.getItem('bz.storyOrigin'));
+
+test('a hidden story tapped on the feed: the skip pushes a new entry, the feed entry stays', () => {
+  const p = page('ig-feed-friends.html', IG + '/?variant=following');
+  p.ctl.tick();
+  p.window.scrollTo = () => {};
+  p.window.history.pushState({}, '', '/stories/brand/1/');
+  assert.equal(p.window.location.pathname + p.window.location.search, '/?variant=following', 'the feed entry is untouched');
+  assert.deepEqual(p.nav, [['assign', '/stories/bob.b/']], 'pushed, never replaced (replace lost the feed: close went to Messages)');
+  assert.deepEqual(origin(p), { href: '/?variant=following', y: 0, depth: 1 });
+});
+
+test('a hidden story with nobody allowed after it, tapped on the feed: you just stay', () => {
+  const p = page('ig-feed-friends.html', IG + '/?variant=following');
+  p.ctl.tick();
+  p.window.history.pushState({}, '', '/stories/celeb/1/');
+  assert.equal(p.window.location.search, '?variant=following');
+  assert.deepEqual(p.nav, [], 'no reload, no jump');
+  assert.ok(p.posts.some((m) => m.type === 'friends' && m.event === 'storyClosed'));
+});
+
+test('after a skip (new page): the site closing to the inbox goes back to the feed instead', () => {
+  const s = { 'bz.storyOrigin': { href: '/?variant=following', y: 1200, depth: 1 }, 'bz.tray': ['alice', 'brand', 'bob.b', 'celeb'] };
+  const p = page('ig-story.html', IG + '/stories/bob.b/1/', { session: s });
+  p.window.history.replaceState({}, '', '/stories/bob.b/2/');
+  assert.deepEqual(p.nav, []);
+  p.window.history.pushState({}, '', '/direct/inbox/');
+  assert.equal(p.window.location.pathname, '/stories/bob.b/2/', 'never shown the inbox');
+  assert.deepEqual(p.nav, [['go', -1]]);
+  assert.equal(origin(p), null);
+});
+
+test('after a skip: the last allowed story ending closes to the feed entry', () => {
+  const s = { 'bz.storyOrigin': { href: '/?variant=following', y: 0, depth: 1 }, 'bz.tray': ['alice', 'brand', 'bob.b', 'celeb'] };
+  const p = page('ig-story.html', IG + '/stories/bob.b/1/', { session: s });
+  p.window.history.pushState({}, '', '/stories/bob.b/2/');
+  p.window.history.pushState({}, '', '/stories/celeb/1/');
+  assert.deepEqual(p.nav.at(-1), ['go', -2], 'two entries back: the feed');
+});
+
+test('from a profile or a DM thread: closing returns there, not the feed or the inbox', () => {
+  const prof = page('ig-profile.html', IG + '/carol/');
+  prof.window.history.pushState({}, '', '/stories/carol/1/');
+  prof.window.history.pushState({}, '', '/');
+  assert.deepEqual(prof.nav, [['go', -1]]);
+  const dm = page('ig-profile.html', IG + '/direct/t/123/');
+  dm.window.history.pushState({}, '', '/stories/alice/1/');
+  assert.deepEqual(origin(dm), { href: '/direct/t/123/', y: 0, depth: 1 });
+  dm.window.history.pushState({}, '', '/direct/inbox/');
+  assert.deepEqual(dm.nav, [['go', -1]]);
+});
+
+test('leaving a story on purpose (tap the author) is left alone; back out of the viewer clears the origin', () => {
+  const p = page('ig-feed-friends.html', IG + '/?variant=following');
+  p.ctl.tick();
+  p.window.history.pushState({}, '', '/stories/alice/1/');
+  p.window.history.pushState({}, '', '/alice/');
+  assert.equal(p.window.location.pathname, '/alice/');
+  assert.deepEqual(p.nav, []);
+  assert.equal(origin(p), null);
+});
+
+test('origin depth unknown: load it and put the scroll position back', () => {
+  const s = { 'bz.storyOrigin': { href: '/carol/', y: 900, depth: null } };
+  const p = page('ig-story.html', IG + '/stories/bob.b/1/', { session: s });
+  p.window.history.pushState({}, '', '/direct/inbox/');
+  assert.deepEqual(p.nav, [['replace', '/carol/']]);
+  assert.deepEqual(JSON.parse(p.window.sessionStorage.getItem('bz.restore')), { href: '/carol/', y: 900 });
 });
 
 test('feed → story: the feed still in the DOM (hidden posts\' headers) is never read as the story\'s author', () => {
@@ -339,7 +422,7 @@ test('canary: posts outside the post selector are blurred and reported', () => {
 });
 
 test('canary: a hidden person\'s story link outside the tray selector is blurred', () => {
-  const a = active('instagram', {}, true, 'togglesDecide', PEOPLE);
+  const a = active('instagram', mutuals(), true, 'togglesDecide', PEOPLE);
   a.recipe = Object.assign({}, a.recipe, { friendsFilter: Object.assign({}, a.recipe.friendsFilter, { storyTray: 'li.tray a' }) });
   const c = bz.compile(a);
   const { window } = dom('ig-feed-friends.html', IG + '/');

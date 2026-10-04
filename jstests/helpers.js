@@ -35,8 +35,9 @@ function active(platform, settings = {}, signedIn = true, shortForm = 'togglesDe
   const keep = (list) => (list || []).filter(keepRule);
   let activeFriends;
   if (rulesOn) {
-    const feed = allowed(rules.feed || 'mutuals', friends, rules, people);
-    const stories = allowed(rules.stories || 'mutuals', friends, rules, people);
+    // FeedRules.defaultAudience (beta, QUESTIONS #65): everyone I follow.
+    const feed = allowed(rules.feed || 'everyone', friends, rules, people);
+    const stories = allowed(rules.stories || 'everyone', friends, rules, people);
     const never = (rules.never || []).slice().sort();
     if (feed || stories || never.length) {
       const force = ff.forceFollowingToggle ? on(ff.forceFollowingToggle) : false;

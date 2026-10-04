@@ -141,7 +141,8 @@ final class LiteScriptBuilderTests: XCTestCase {
 
     func testFeedRulesReachThePage() throws {
         let people = PeopleData(followers: ["alice", "fan"], following: ["alice", "brand"])
-        let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(.instagram), settings: PlatformSettings(), people: people)
+        let settings = PlatformSettings(feedRules: FeedRules(feed: .mutuals, stories: .mutuals))
+        let active = try ActiveRecipe(recipe: RecipeLibrary.bundled(.instagram), settings: settings, people: people)
         let sync = LiteSync(list: .followers, owner: "me")
         let json = try LiteScriptBuilder.configJSON(active: active, state: .init(storyUser: "brand"), strings: strings,
                                                     previousHref: nil, scan: true, sync: sync)

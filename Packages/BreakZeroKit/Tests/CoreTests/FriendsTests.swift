@@ -16,6 +16,8 @@ final class FeedRulesTests: XCTestCase {
         lock = LockState()
         clock = FakeClock()
         lock.ledger.record(clock.sample)
+        // The ratchet tests start from Mutuals, the narrower rule (the beta default is Everyone, #65).
+        ig = PlatformSettings(feedRules: FeedRules(feed: .mutuals, stories: .mutuals))
     }
 
     func submit(_ c: PolicyChange) -> SubmitResult {
@@ -46,10 +48,10 @@ final class FeedRulesTests: XCTestCase {
 
     // MARK: Rules and precedence
 
-    func testDefaultsAreMutualsWithProfileStoriesOn() {
+    func testBetaDefaultsAreEveryoneIFollowWithProfileStoriesOn() {
         let s = PlatformSettings()
-        XCTAssertEqual(s.audience(.feed), .mutuals)
-        XCTAssertEqual(s.audience(.stories), .mutuals)
+        XCTAssertEqual(s.audience(.feed), .everyone, "QUESTIONS #65")
+        XCTAssertEqual(s.audience(.stories), .everyone)
         XCTAssertTrue(s.profileStories)
     }
 
@@ -59,11 +61,11 @@ final class FeedRulesTests: XCTestCase {
         XCTAssertEqual(s.audience(.feed), .myList, "no silent widening to all mutuals (QUESTIONS #47)")
         XCTAssertEqual(s.audience(.stories), .myList)
         let empty = try JSONDecoder().decode(PlatformSettings.self, from: Data(#"{"friends":[]}"#.utf8))
-        XCTAssertEqual(empty.audience(.feed), .mutuals)
+        XCTAssertEqual(empty.audience(.feed), .everyone)
     }
 
     func testPrecedenceNeverBeatsAlwaysBeatsTheRule() {
-        var s = PlatformSettings(feedRules: FeedRules(always: ["zed", "carol"], never: ["alice", "zed"]))
+        var s = PlatformSettings(feedRules: FeedRules(feed: .mutuals, always: ["zed", "carol"], never: ["alice", "zed"]))
         XCTAssertEqual(s.allowed(.feed, people: Self.people), ["bob.b", "carol"],
                        "mutuals ∪ always − never: zed is in both lists, never wins")
         s.feedRules.feed = .everyone
@@ -90,7 +92,7 @@ final class FeedRulesTests: XCTestCase {
     }
 
     func testActiveRecipeCarriesTheSets() throws {
-        let a = try active(PlatformSettings(feedRules: FeedRules(stories: .everyone, never: ["celeb"])))
+        let a = try active(PlatformSettings(feedRules: FeedRules(feed: .mutuals, stories: .everyone, never: ["celeb"])))
         let f = try XCTUnwrap(a.friends)
         XCTAssertEqual(f.feed, ["alice", "bob.b", "carol"])
         XCTAssertEqual(f.stories, ["alice", "bob.b", "brand", "carol"])
@@ -120,7 +122,7 @@ final class FeedRulesTests: XCTestCase {
     }
 
     func testNativeWatchdogSeesTheStoryGate() throws {
-        let engine = try RuleEngine(active: active(PlatformSettings()))
+        let engine = try RuleEngine(active: active(PlatformSettings(feedRules: FeedRules(stories: .mutuals))))
         let d = engine.check(url: URL(string: "https://www.instagram.com/stories/brand/5/")!, state: NavigationState())
         XCTAssertEqual(d, .redirect(to: "/?variant=following", reason: .redirected(ruleID: Friends.storyGateID)))
         XCTAssertEqual(engine.check(url: URL(string: "https://www.instagram.com/stories/brand/5/")!,
@@ -306,13 +308,35 @@ final class FeedRulesTests: XCTestCase {
         XCTAssertEqual(try ExportImporter.importFiles([("download (3).json", Data(following.utf8))]).following, ["alice"])
     }
 
-    func testHTMLExportsAreRejectedWithAClearReason() throws {
-        XCTAssertThrowsError(try ExportImporter.importFiles([("export.zip", fixture("ig-export-html.zip"))])) {
-            XCTAssertEqual($0 as? ExportImporter.Failure, .htmlExport)
-        }
-        XCTAssertThrowsError(try ExportImporter.importFiles([("following.html", Data("<html></html>".utf8))])) {
-            XCTAssertEqual($0 as? ExportImporter.Failure, .htmlExport)
-        }
+    func testHTMLExportImports() throws {
+        let r = try ExportImporter.importFiles([("instagram-me-2026-10-04.zip", fixture("ig-export-html.zip"))])
+        XCTAssertEqual(r.followers, ["alice", "bob.b", "carol", "fan", "dave", "erin_x"], "followers_1 + followers_2, lower-cased, deduped")
+        XCTAssertEqual(r.following, ["alice", "bob.b", "carol", "brand", "dave"], "_u/ stripped")
+        XCTAssertEqual(r.mutuals, ["alice", "bob.b", "carol", "dave"])
+        XCTAssertNil(r.closeFriends, "close_friends.html has no profile links: nothing imported")
+        XCTAssertTrue(r.closeFriendsWithoutLinks, "…and we say so")
+        XCTAssertFalse(r.followers.contains("stranger_request"), "recent follow requests aren't followers")
+        XCTAssertFalse(r.followers.contains("should_not_count"), "start_here.html is ignored")
+        let c = try XCTUnwrap(r.coverage)
+        XCTAssertEqual(c.start, ExportImporter.day("2025-10-04"))
+        XCTAssertEqual(c.end, ExportImporter.day("2026-10-04"))
+        XCTAssertTrue(c.isPartial, "one year isn't All time")
+    }
+
+    func testAllTimeHTMLIsNotPartial() throws {
+        let following = try fixture("ig-following-alltime.html")
+        let followers = Data(#"<html><body><a href="https://www.instagram.com/alice">alice</a></body></html>"#.utf8)
+        let r = try ExportImporter.importFiles([("followers_1.html", followers), ("following.html", following)])
+        XCTAssertEqual(r.mutuals, ["alice"])
+        XCTAssertEqual(r.coverage?.isPartial, false)
+    }
+
+    func testHrefParsing() {
+        XCTAssertEqual(ExportImporter.hrefs(in: #"<a href="https://www.instagram.com/_u/a.b">x</a><a href='https://www.instagram.com/c'>y</a><a HREF="x">"#),
+                       ["https://www.instagram.com/_u/a.b", "https://www.instagram.com/c", "x"])
+        XCTAssertEqual(ExportImporter.usernameFromHref("https://www.instagram.com/_u/A.B"), "a.b")
+        XCTAssertNil(ExportImporter.usernameFromHref("https://example.com/alice"))
+        XCTAssertNil(ExportImporter.usernameFromHref("connections/followers_and_following/followers_1.html"))
     }
 
     func testMalformedInput() throws {

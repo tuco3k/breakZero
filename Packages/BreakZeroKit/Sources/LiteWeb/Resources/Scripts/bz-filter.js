@@ -114,6 +114,7 @@
       storyAuthor: ff.storyAuthor,
       caughtUpAfter: ff.caughtUpAfter || 20,
       findingAfter: ff.findingAfter || 5,
+      readyAfter: ff.readyAfter || 3,
       idleMs: (ff.idleSeconds || 4) * 1000
     };
   }
@@ -308,12 +309,42 @@
       var d = decideTrayItem(c, f, t, base);
       if (t.getAttribute(FR_ATTR) !== d) { t.setAttribute(FR_ATTR, d); out.changed++; }
     });
+    markLists(f, doc, posts);
     if (anchor) {
       var delta = anchor.getBoundingClientRect().top - anchorTop;
       if (delta) { try { win.scrollBy(0, delta); } catch (e) { /* not scrollable */ } }
     }
     out.posts = posts.length;
     return out;
+  }
+
+  /*
+   * Calm list (owner, 2026-10-04): the feed list (the element whose children are the post rows) is
+   * marked; rows holding an approved post are kept, everything else in the list (rejected rows,
+   * loading skeletons, suggestion carousels, spinners) is hidden. Until `readyAfter` approved rows
+   * exist, the whole list is hidden. Synchronous, from screenRoots.
+   */
+  var CU_ATTR = 'data-bz-cu-after';
+  var LIST_ATTR = 'data-bz-feedlist', KEEP_ATTR = 'data-bz-keep', READY_ATTR = 'data-bz-ready';
+
+  function markLists(f, doc, posts) {
+    var lists = [];
+    for (var i = 0; i < posts.length; i++) {
+      var row = rowOf(f, posts[i]);
+      var list = row.parentElement;
+      // Only a real list: it holds at least two posts and isn't <main>/<body> itself.
+      if (!list || STRUCTURAL.test(list.tagName) || list.querySelectorAll(postSelector(f)).length < 2) continue;
+      if (!list.hasAttribute(LIST_ATTR)) list.setAttribute(LIST_ATTR, '');
+      var ok = posts[i].getAttribute(FR_ATTR) === 'ok';
+      if (ok && !row.hasAttribute(KEEP_ATTR)) row.setAttribute(KEEP_ATTR, '');
+      if (!ok && row.hasAttribute(KEEP_ATTR)) row.removeAttribute(KEEP_ATTR);
+      if (lists.indexOf(list) < 0) lists.push(list);
+    }
+    lists.forEach(function (list) {
+      if (!list.hasAttribute(READY_ATTR) && list.querySelectorAll(':scope > [' + KEEP_ATTR + ']').length >= f.readyAfter) {
+        list.setAttribute(READY_ATTR, '');
+      }
+    });
   }
 
   function isAbove(el) {
@@ -368,14 +399,17 @@
     if (fs.card && fs.card.isConnected) {
       out.caughtUp = true;
     } else if (out.run >= f.caughtUpAfter || idle) {
-      removeFinding(fs);
       insertCaughtUp(doc, f, lastOk || posts[0], !lastOk, fs);
       out.caughtUp = !!fs.card;
     }
-    if (!out.caughtUp && out.run >= f.findingAfter && posts.length) {
-      placeFinding(doc, f, lastOk || posts[0], !lastOk, fs);
+    // Calm list: one static note while the list waits for its first approved posts. It appears once
+    // and goes away once (when the list is ready or caught up); it never moves or toggles.
+    var list = doc.querySelector('[' + LIST_ATTR + ']');
+    if (list && out.caughtUp) list.setAttribute(READY_ATTR, '');
+    if (list && !list.hasAttribute(READY_ATTR) && !out.caughtUp) {
+      if (!fs.finding || !fs.finding.isConnected) placeFinding(doc, list, fs);
       out.finding = true;
-    } else if (!out.caughtUp) {
+    } else {
       removeFinding(fs);
     }
     return out;
@@ -401,24 +435,15 @@
     return row;
   }
 
-  /* "Finding posts from your people…": after the last shown post while many are hidden in a row. */
-  function placeFinding(doc, f, anchorPost, before, fs) {
-    if (!anchorPost) return;
-    var row = rowOf(f, anchorPost);
-    var list = row.parentElement;
-    if (!list) return;
-    var card = fs.finding && fs.finding.isConnected ? fs.finding : null;
-    var where = before ? row : row.nextSibling;
-    if (card && (before ? card.nextSibling === row : card.previousSibling === row)) return;
-    if (!card) {
-      card = doc.createElement('div');
-      card.setAttribute('data-bz', 'finding');
-      card.setAttribute('role', 'status');
-      card.style.cssText = 'padding:22px 16px;text-align:center;font:500 14px -apple-system,system-ui,sans-serif;opacity:.6';
-      card.textContent = fs.findingText || 'Finding posts from your people…';
-      fs.finding = card;
-    }
-    list.insertBefore(card, where);
+  /* "Finding posts from your people…": a static note at the top of a list that isn't ready yet. */
+  function placeFinding(doc, list, fs) {
+    var card = doc.createElement('div');
+    card.setAttribute('data-bz', 'finding');
+    card.setAttribute('role', 'status');
+    card.style.cssText = 'padding:40px 16px;text-align:center;font:500 14px -apple-system,system-ui,sans-serif;opacity:.6';
+    card.textContent = fs.findingText || 'Finding posts from your people…';
+    fs.finding = card;
+    list.insertBefore(card, list.firstChild);
   }
 
   function removeFinding(fs) {
@@ -496,6 +521,24 @@
   }
 
   /* Diagnostics: is any unapproved post painted? A post is painted if any of its links has boxes. */
+  /*
+   * Diagnostics: site content painted below our "caught up" card (links, images, videos with a
+   * size, not ours). Should always be 0: everything after the card is hidden.
+   */
+  function paintedBelowCard(doc) {
+    var card = doc.querySelector('[data-bz="caughtup"]');
+    if (!card || !card.getClientRects().length) return 0;
+    var bottom = card.getBoundingClientRect().bottom;
+    var els = doc.querySelectorAll('main a[href], main img, main video');
+    var n = 0;
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].closest('[data-bz]')) continue;
+      var r = els[i].getBoundingClientRect();
+      if (r.height > 0 && r.width > 0 && r.top >= bottom - 1) n++;
+    }
+    return n;
+  }
+
   function paintedUnapproved(c, doc, path, base) {
     var f = c.friends;
     if (!f || !isFeed(f, path)) return 0;
@@ -520,17 +563,18 @@
     var btn = wrap && wrap.querySelector('button');
     if (btn && btn.getAttribute('data-bz-user') === author) return;
     if (wrap) wrap.parentNode.removeChild(wrap);
-    // Our own zero-height, positioned wrapper as the post's first child: the button sits over the
-    // post's top corner without changing any of the site's elements (not even their position).
+    // Our own short row as the post's first child, in normal flow: it never sits over the site's
+    // header (an overlay covered "Follow" on people you don't follow). Added before the post is
+    // shown, so nothing moves on screen; none of the site's elements are changed.
     wrap = doc.createElement('div');
     wrap.setAttribute('data-bz', 'hidewrap');
-    wrap.style.cssText = 'position:relative;height:0;overflow:visible;z-index:5';
+    wrap.style.cssText = 'display:flex;justify-content:flex-end;padding:6px 12px 0';
     btn = doc.createElement('button');
     btn.type = 'button';
     btn.setAttribute('data-bz-user', author);
     btn.setAttribute('aria-label', (fs.hideLabel || 'Hide') + ' @' + author);
     btn.textContent = fs.hideText || 'Hide';
-    btn.style.cssText = 'position:absolute;top:10px;right:52px;border:0;border-radius:12px;' +
+    btn.style.cssText = 'border:0;border-radius:12px;' +
       'padding:3px 9px;font:600 12px -apple-system,system-ui,sans-serif;background:rgba(127,127,127,.18);color:inherit';
     btn.addEventListener('click', function (e) {
       e.preventDefault();
@@ -557,12 +601,11 @@
     card.style.cssText = 'padding:28px 16px 40px;text-align:center;font:600 15px -apple-system,system-ui,sans-serif;opacity:.75';
     card.textContent = fs.caughtUpText || "You're all caught up";
     list.insertBefore(card, before ? row : row.nextSibling);
-    // Hide what follows the list inside <main> too (the loader often sits outside the list).
+    // Hide what follows the list inside <main> too (the loader often sits outside the list), now
+    // and later: the list and its ancestors are marked, and CSS hides their later siblings.
     var el = list;
     while (el && el.parentElement && !STRUCTURAL.test(el.tagName)) {
-      for (var sib = el.nextElementSibling; sib; sib = sib.nextElementSibling) {
-        if (!sib.hasAttribute(HIDDEN_ATTR)) sib.setAttribute(HIDDEN_ATTR, CAUGHT_UP_ID);
-      }
+      el.setAttribute(CU_ATTR, '');
       el = el.parentElement;
     }
     fs.card = card;
@@ -573,6 +616,8 @@
     fs.card = null;
     var marked = doc.querySelectorAll('[' + HIDDEN_ATTR + '="' + CAUGHT_UP_ID + '"]');
     for (var i = 0; i < marked.length; i++) marked[i].removeAttribute(HIDDEN_ATTR);
+    var after = doc.querySelectorAll('[' + CU_ATTR + ']');
+    for (var j = 0; j < after.length; j++) after[j].removeAttribute(CU_ATTR);
     fs.postCount = -1;
   }
 
@@ -896,8 +941,14 @@
     if (f && isFeed(f, path)) {
       // Default deny: a post or tray item shows only once the script marked it a friend's.
       css += ':is(' + postSelector(f) + '):not([' + FR_ATTR + '="ok"]){display:none!important}';
+      // Calm list: nothing but approved rows (and our own note/card); hidden entirely until ready.
+      css += '[' + LIST_ATTR + ']>:not([' + KEEP_ATTR + ']):not([data-bz]){display:none!important}';
+      css += '[' + LIST_ATTR + ']:not([' + READY_ATTR + '])>[' + KEEP_ATTR + ']{display:none!important}';
       css += ':is(' + f.storyTray + '):not([' + FR_ATTR + '="ok"]){display:none!important}';
       css += '[data-bz="caughtup"]~*{display:none!important}';
+      // …and whatever the site adds after the list later (new batches in new containers): CSS, so
+      // it's hidden the moment it's inserted, not when the script next looks.
+      css += '[' + CU_ATTR + ']~:not([data-bz]){display:none!important}';
     }
     if (f && f.storyRoute.test(path)) {
       // The viewer stays invisible until this exact story was checked.
@@ -1101,6 +1152,7 @@
     var doc = win.document;
     var replace = (hooks && hooks.replace) || function (u) { win.location.replace(u); };
     var assign = (hooks && hooks.assign) || function (u) { win.location.assign(u); };
+    var go = (hooks && hooks.go) || function (n) { win.history.go(n); };
     var clock = (hooks && hooks.now) || function () { return Date.now(); };
     var every = (hooks && hooks.setInterval) || function (fn, ms) { return win.setInterval(fn, ms); };
     var later = (hooks && hooks.setTimeout) || function (fn, ms) { return win.setTimeout(fn, ms); };
@@ -1124,6 +1176,8 @@
                caughtUpText: strings.caughtUp, findingText: strings.finding, hideText: strings.hide, hideLabel: strings.hide,
                scanSent: {}, scanNoChecked: false, gaveUp: false, highlightFrom: session('bz.hl') || null,
                hiddenSeen: Object.create(null), onHide: hideAccount };
+    // Where the story viewer was opened from: see gateGo.
+    var storyOrigin = null;
 
     /* One-tap hide: hidden here at once; native adds them to Never show (narrowing, instant). */
     function hideAccount(u) {
@@ -1138,6 +1192,7 @@
         return JSON.parse(win.sessionStorage.getItem(key) || 'null');
       } catch (e) { return null; }
     }
+    storyOrigin = session('bz.storyOrigin');
 
     function post(msg) {
       try {
@@ -1187,8 +1242,78 @@
       if (!f) return c.landingPath;
       var next = nextFriendStory(f, fs.trayOrder, user);
       post({ type: 'friends', event: next ? 'storySkipped' : 'storyClosed' });
-      return next || f.closePath;
+      return next || (storyOrigin && storyOrigin.href) || f.closePath;
     }
+
+    /*
+     * Where the story viewer was opened from (feed, profile, DM thread), its scroll position, and
+     * how many history entries back it is (null = unknown). Leaving the viewer by the gate goes
+     * back there. Kept in sessionStorage: a skip loads the next story as a new page.
+     */
+    function isStoryPath(path) { return !!(c.friends && c.friends.storyRoute.test(path)); }
+    function hereHref() { return win.location.pathname + win.location.search; }
+    function scrollY() { return win.scrollY || (doc.scrollingElement && doc.scrollingElement.scrollTop) || 0; }
+    function setOrigin(o) { storyOrigin = o; session('bz.storyOrigin', o); }
+
+    /* A history change the page made itself (pushState/replaceState/popstate) between two URLs. */
+    function noteStoryMove(fromPath, toPath, how) {
+      var fromStory = isStoryPath(fromPath), toStory = isStoryPath(toPath);
+      if (!fromStory && toStory) {
+        if (how === 'push') setOrigin({ href: fromPath === win.location.pathname ? hereHref() : fromPath, y: scrollY(), depth: 1 });
+        else if (how === 'replace') setOrigin({ href: c.friends ? c.friends.closePath : '/', y: 0, depth: null });
+      } else if (fromStory && toStory && storyOrigin) {
+        if (how === 'push' && storyOrigin.depth != null) setOrigin({ href: storyOrigin.href, y: storyOrigin.y, depth: storyOrigin.depth + 1 });
+        if (how === 'pop') setOrigin({ href: storyOrigin.href, y: storyOrigin.y, depth: storyOrigin.depth > 1 ? storyOrigin.depth - 1 : null });
+      } else if (fromStory && !toStory && storyOrigin) {
+        setOrigin(null);
+      }
+    }
+
+    /*
+     * The story gate moving on: to the next allowed story, or out of the viewer. A skip from the
+     * page you're on pushes a new entry, so closing that story comes back here (replacing would
+     * overwrite this page, and close would land on whatever was before it — the inbox). Out of
+     * the viewer = back to where it was opened, by history when we know how far, else by loading
+     * it and restoring its scroll position.
+     */
+    function gateGo(to) {
+      var onStory = isStoryPath(win.location.pathname);
+      var toPath = to.split('?')[0];
+      if (isStoryPath(toPath)) {
+        if (onStory) { replace(to); return; }
+        setOrigin({ href: hereHref(), y: scrollY(), depth: 1 });
+        assign(to);
+        return;
+      }
+      if (!onStory) return; // still where the story was opened from: just don't go
+      var o = storyOrigin;
+      setOrigin(null);
+      if (o && o.href === to && o.depth > 0) { go(-o.depth); return; }
+      if (o && o.href === to && o.y > 0) session('bz.restore', { href: to, y: o.y });
+      replace(to);
+    }
+
+    /* The page closing the viewer itself to the feed or the landing page: go back to the origin. */
+    function closesToElsewhere(fromPath, target) {
+      if (!storyOrigin || !isStoryPath(fromPath)) return false;
+      var t;
+      try { t = new URL(target, win.location.href); } catch (e) { return false; }
+      if (isStoryPath(t.pathname) || t.pathname + t.search === storyOrigin.href) return false;
+      return t.pathname + t.search === c.landingPath || isFeed(c.friends, t.pathname);
+    }
+
+    /* After the origin was reloaded: put the scroll position back once the page is tall enough. */
+    (function restoreScroll() {
+      var r = session('bz.restore');
+      if (!r || r.href !== hereHref()) return;
+      session('bz.restore', null);
+      var tries = 0;
+      (function attempt() {
+        var el = doc.scrollingElement || doc.documentElement;
+        if (el && el.scrollHeight >= r.y + (win.innerHeight || 0)) { try { win.scrollTo(0, r.y); } catch (e) { /* jsdom */ } return; }
+        if (++tries < 20) later(attempt, 250);
+      })();
+    })();
 
     /* Highlights carry no username in the URL: remember the profile they were opened from. */
     function noteHighlight(targetHref, fromHref) {
@@ -1317,6 +1442,11 @@
     }
 
     function enforce(d, fromHref) {
+      if (d.type === 'redirect' && d.ruleID === GATE_ID && d.reason === 'redirected') {
+        post({ type: 'redirect', reason: d.reason, ruleID: d.ruleID, state: state });
+        gateGo(d.to);
+        return false;
+      }
       if (d.type === 'redirect') {
         post({ type: 'redirect', reason: d.reason, ruleID: d.ruleID, state: state });
         // Already there (e.g. a story ring on the profile you're on): just don't go. No reload.
@@ -1332,6 +1462,7 @@
     }
 
     function onURLChanged(fromHref) {
+      try { noteStoryMove(new URL(fromHref).pathname, win.location.pathname, 'pop'); } catch (e) { /* bad URL */ }
       var d = check(win.location.href, fromHref);
       lastHref = win.location.href;
       if (enforce(d, fromHref)) {
@@ -1351,6 +1482,12 @@
           var target;
           try { target = new URL(String(url), win.location.href).href; } catch (e) { target = null; }
           if (target && target !== win.location.href) {
+            var fromPath = win.location.pathname;
+            if (closesToElsewhere(fromPath, target)) {
+              post({ type: 'friends', event: 'storyReturn' });
+              gateGo(storyOrigin.href);
+              return undefined;
+            }
             var d = check(target, win.location.href);
             if (d.type === 'external') return original.apply(this, arguments);
             if (!enforce(d, win.location.href)) return undefined;
@@ -1369,7 +1506,9 @@
             }
           }
         }
+        var before = win.location.pathname;
         var result = original.apply(this, arguments);
+        if (win.location.pathname !== before) noteStoryMove(before, win.location.pathname, name === 'pushState' ? 'push' : 'replace');
         if (win.location.href !== lastHref) {
           lastHref = win.location.href;
           post({ type: 'route', href: lastHref, state: state });
@@ -1462,7 +1601,8 @@
       try { win.stop(); } catch (e) { /* not supported */ }
       pauseAllMedia(doc);
       post({ type: 'violation', reason: v.reason, detail: v.detail, ruleID: v.ruleID });
-      if (v.to && v.to !== here) replace(v.to);
+      if (v.ruleID === GATE_ID && v.reason === 'redirected' && v.to) gateGo(v.to);
+      else if (v.to && v.to !== here) replace(v.to);
     }
 
     function watchdog() {
@@ -1572,16 +1712,109 @@
     win.__bzFeedReport = function () {
       return feedReport(c, doc, win.location.pathname, win.location.href);
     };
-    win.__bzFlashWatch = function (ms) {
+    /*
+     * Per painted frame: unapproved posts' links visible, and site content visible below the
+     * "caught up" card. `opts.bottom` keeps the page scrolled to the end, where the site keeps
+     * appending (the case the owner saw flash).
+     */
+    win.__bzFlashWatch = function (ms, opts) {
+      opts = opts || {};
       return new Promise(function (resolve) {
-        var end = clock() + (ms || 30000), frames = 0, flashFrames = 0, worst = 0;
+        var end = clock() + (ms || 30000), frames = 0, flashFrames = 0, worst = 0, belowFrames = 0, worstBelow = 0, cardFrames = 0;
         var raf = win.requestAnimationFrame || function (fn) { return win.setTimeout(fn, 16); };
+        var lastScroll = 0;
         function frame() {
           frames++;
           var bad = paintedUnapproved(c, doc, win.location.pathname, win.location.href);
           if (bad) { flashFrames++; worst = Math.max(worst, bad); }
+          var below = paintedBelowCard(doc);
+          if (below) { belowFrames++; worstBelow = Math.max(worstBelow, below); }
+          if (doc.querySelector('[data-bz="caughtup"]')) cardFrames++;
+          if (opts.bottom && clock() - lastScroll > 400) {
+            lastScroll = clock();
+            var el = doc.scrollingElement || doc.documentElement;
+            try { el.scrollTop = el.scrollHeight; } catch (e) { /* ignore */ }
+          }
           if (clock() < end) raf(frame);
-          else resolve({ frames: frames, flashFrames: flashFrames, worst: worst, report: feedReport(c, doc, win.location.pathname, win.location.href) });
+          else resolve({ frames: frames, flashFrames: flashFrames, worst: worst, belowCardFrames: belowFrames,
+                         worstBelowCard: worstBelow, cardFrames: cardFrames,
+                         report: feedReport(c, doc, win.location.pathname, win.location.href) });
+        }
+        raf(frame);
+      });
+    };
+
+    /*
+     * Diagnostics: churn while scrolling. Counts, per second, element inserts/removes, posts
+     * mounted/unmounted, approved posts later hidden, our placeholder toggles, our scroll corrections
+     * and page-height changes. `scroll` scrolls the feed by itself (~1 screen/s); `unfiltered`
+     * measures the same page with the audience filter off (never/suggestions/ads still apply).
+     */
+    win.__bzChurnWatch = function (ms, opts) {
+      opts = opts || {};
+      var f = c.friends;
+      var saved = f ? f.feed : undefined;
+      if (f && opts.unfiltered) { f.feed = null; schedule(); }
+      var sel = f ? postSelector(f) : 'article';
+      var buckets = [], cur = null, start = clock();
+      function bucket() {
+        var sec = Math.floor((clock() - start) / 1000);
+        while (buckets.length <= sec) buckets.push({ added: 0, removed: 0, postsIn: 0, postsOut: 0, okOut: 0, okToNo: 0, finding: 0, anchor: 0, height: 0 });
+        return buckets[sec];
+      }
+      function isPost(n) { return n.nodeType === 1 && (n.matches(sel) || n.querySelector(sel)); }
+      var mo2 = new win.MutationObserver(function (recs) {
+        var b = bucket();
+        recs.forEach(function (r) {
+          if (r.type === 'attributes') {
+            if (r.oldValue === 'ok' && r.target.getAttribute(FR_ATTR) === 'no') b.okToNo++;
+            return;
+          }
+          for (var i = 0; i < r.addedNodes.length; i++) {
+            var a = r.addedNodes[i];
+            if (a.nodeType !== 1) continue;
+            b.added++;
+            if (a.getAttribute('data-bz') === 'finding') b.finding++;
+            if (isPost(a)) b.postsIn++;
+          }
+          for (var j = 0; j < r.removedNodes.length; j++) {
+            var d = r.removedNodes[j];
+            if (d.nodeType !== 1) continue;
+            b.removed++;
+            if (d.getAttribute('data-bz') === 'finding') b.finding++;
+            if (isPost(d)) {
+              b.postsOut++;
+              if (d.getAttribute(FR_ATTR) === 'ok' || d.querySelector('[' + FR_ATTR + '="ok"]')) b.okOut++;
+            }
+          }
+        });
+      });
+      mo2.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: [FR_ATTR], attributeOldValue: true });
+      var origScrollBy = win.scrollBy;
+      win.scrollBy = function () { bucket().anchor++; return origScrollBy.apply(win, arguments); };
+      var lastH = 0;
+      var raf = win.requestAnimationFrame || function (fn) { return win.setTimeout(fn, 16); };
+      return new Promise(function (resolve) {
+        var lastStep = 0;
+        function frame() {
+          var el = doc.scrollingElement || doc.documentElement;
+          var h = el.scrollHeight;
+          if (lastH && h !== lastH) bucket().height++;
+          lastH = h;
+          var now = clock();
+          if (opts.scroll && now - lastStep >= 50) {
+            lastStep = now;
+            el.scrollTop = el.scrollTop + Math.round((win.innerHeight || 800) / 20);
+          }
+          if (now - start < (ms || 20000)) { raf(frame); return; }
+          mo2.disconnect();
+          win.scrollBy = origScrollBy;
+          if (f && opts.unfiltered) { f.feed = saved; schedule(); }
+          var tot = { added: 0, removed: 0, postsIn: 0, postsOut: 0, okOut: 0, okToNo: 0, finding: 0, anchor: 0, height: 0 };
+          buckets.forEach(function (b) { Object.keys(tot).forEach(function (k) { tot[k] += b[k]; }); });
+          resolve({ seconds: buckets.length, totals: tot, perSecond: buckets,
+                    postsInDom: doc.querySelectorAll(sel).length, approvedInDom: doc.querySelectorAll('[' + FR_ATTR + '="ok"]').length,
+                    path: win.location.pathname + win.location.search, unfiltered: !!opts.unfiltered });
         }
         raf(frame);
       });

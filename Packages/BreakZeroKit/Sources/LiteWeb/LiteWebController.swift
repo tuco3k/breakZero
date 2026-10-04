@@ -326,6 +326,9 @@ public final class LiteWebController: NSObject {
             lastJSReportedHref = href
             if let newState { state = newState }
             if let url = URL(string: href) { onRouteChange?(url) }
+            // In-page moves too: a crash restore must come back here (a story's origin, a thread),
+            // not to the last full load, which is often the inbox.
+            savedInteractionState = webView.interactionState
         case let .redirect(reason, ruleID):
             lastJSReportedHref = nil
             onEvent?("guard redirect \(reason) \(ruleID ?? "")")

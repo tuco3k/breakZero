@@ -279,7 +279,7 @@ public enum LiteMessage: Equatable, Sendable {
     case syncEvent(list: FriendsScanList, event: SyncPageEvent)
 
     static let friendsEvents: Set<String> = ["forcedFollowing", "followingGaveUp", "caughtUp", "storySkipped",
-                                             "storyClosed", "scanNoChecked"]
+                                             "storyClosed", "storyReturn", "scanNoChecked"]
     /// Per message; the page sends only names it hasn't sent before.
     static let maxScanBatch = 500
 

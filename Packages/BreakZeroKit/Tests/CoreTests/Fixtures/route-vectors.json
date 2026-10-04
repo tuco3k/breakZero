@@ -616,7 +616,13 @@
           "url": "https://www.instagram.com/p/ABC123/",
           "expect": "allow"
         }
-      ]
+      ],
+      "settings": {
+        "feedRules": {
+          "feed": "mutuals",
+          "stories": "mutuals"
+        }
+      }
     },
     {
       "name": "instagram feed rules: a story opened from that person's profile plays, one person only",
@@ -675,7 +681,13 @@
           "expect": "redirect:/direct/inbox/",
           "watchdog": "redirect:/?variant=following"
         }
-      ]
+      ],
+      "settings": {
+        "feedRules": {
+          "feed": "mutuals",
+          "stories": "mutuals"
+        }
+      }
     },
     {
       "name": "instagram feed rules: profile stories off stay on the profile",
@@ -697,7 +709,9 @@
       },
       "settings": {
         "feedRules": {
-          "profileStories": false
+          "profileStories": false,
+          "feed": "mutuals",
+          "stories": "mutuals"
         }
       },
       "steps": [
@@ -742,7 +756,9 @@
           ],
           "always": [
             "alice"
-          ]
+          ],
+          "feed": "mutuals",
+          "stories": "mutuals"
         }
       },
       "steps": [
@@ -789,7 +805,8 @@
           "stories": "everyone",
           "always": [
             "fan2"
-          ]
+          ],
+          "feed": "mutuals"
         }
       },
       "steps": [
@@ -872,6 +889,10 @@
       "settings": {
         "toggles": {
           "ig.forceFollowing": false
+        },
+        "feedRules": {
+          "feed": "mutuals",
+          "stories": "mutuals"
         }
       },
       "steps": [
@@ -906,6 +927,10 @@
       "settings": {
         "toggles": {
           "ig.friendsOnly": false
+        },
+        "feedRules": {
+          "feed": "mutuals",
+          "stories": "mutuals"
         }
       },
       "steps": [

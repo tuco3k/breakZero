@@ -295,6 +295,9 @@ final class AppModel {
         }
     }
 
+    /// Rules that hide most of the feed (QUESTIONS #65): offered, but labelled Experimental for the beta.
+    static func isExperimental(_ a: Audience) -> Bool { a != .everyone }
+
     /// A rule needs data that isn't there yet (mutuals before any import).
     func needsData(_ surface: FeedSurface) -> Bool {
         let a = igSettings.audience(surface)
@@ -337,6 +340,10 @@ final class AppModel {
         var following: Int
         var followers: Int
         var closeFriends: Int?
+        /// The export's date range when it isn't "All time" (people followed before are missing).
+        var partialRange: ImportedPeople.Coverage? = nil
+        /// close_friends.html had no profile links, so no close friends were imported.
+        var closeFriendsNotIncluded = false
     }
 
     /// Instagram's data export: the .zip or the JSON files from it. Read and parsed off the main
@@ -360,7 +367,9 @@ final class AppModel {
         peopleChanged()
         log("people imported from export: \(imported.mutuals.count) mutuals, \(imported.following.count) following, \(imported.followers.count) followers")
         return ImportSummary(mutuals: imported.mutuals.count, following: imported.following.count,
-                             followers: imported.followers.count, closeFriends: imported.closeFriends?.count)
+                             followers: imported.followers.count, closeFriends: imported.closeFriends?.count,
+                             partialRange: imported.coverage.flatMap { $0.isPartial ? $0 : nil },
+                             closeFriendsNotIncluded: imported.closeFriendsWithoutLinks)
     }
 
     // Auto-scroll sync (optional)
@@ -788,6 +797,32 @@ final class AppModel {
         return (frames, flashes)
     }
 
+    /// Scroll the real feed (the person's own landing: Following variant only if they force it) and
+    /// log churn per second. Debug deep link only.
+    func runChurnCheck(seconds: Int, unfiltered: Bool) async {
+        guard let c = controller(for: .instagram), let r = recipes[.instagram], let f = r.friendsFilter else { return }
+        selectedTab = .lite(.instagram)
+        try? await Task.sleep(for: .seconds(4))
+        let force = igSettings.isOn(f.forceFollowingToggle ?? "", in: r)
+        c.load(path: f.feedPath(forceFollowing: force))
+        try? await Task.sleep(for: .seconds(8))
+        let raw = (try? await c.runDiagnostic("return window.__bzChurnWatch ? JSON.stringify(await window.__bzChurnWatch(\(seconds * 1000), {scroll: true, unfiltered: \(unfiltered)})) : '{}'")) as? String ?? "{}"
+        log("churn \(unfiltered ? "unfiltered" : "filtered"): \(raw)", source: "diag")
+    }
+
+    /// Debug: stay at the end of the feed (where the site keeps appending) and count frames that
+    /// painted an unapproved post or anything below the "caught up" card.
+    func runBottomFlashCheck(seconds: Int) async {
+        guard let c = controller(for: .instagram), let r = recipes[.instagram], let f = r.friendsFilter else { return }
+        selectedTab = .lite(.instagram)
+        try? await Task.sleep(for: .seconds(4))
+        let force = igSettings.isOn(f.forceFollowingToggle ?? "", in: r)
+        c.load(path: f.feedPath(forceFollowing: force))
+        try? await Task.sleep(for: .seconds(8))
+        let raw = (try? await c.runDiagnostic("return window.__bzFlashWatch ? JSON.stringify(await window.__bzFlashWatch(\(seconds * 1000), {bottom: true})) : '{}'")) as? String ?? "{}"
+        log("bottom flash: \(raw)", source: "diag")
+    }
+
     // MARK: Lock grace period
 
     /// Seconds left to undo the Lock, or nil.
@@ -831,6 +866,12 @@ final class AppModel {
             selectedTab = .wall
             showDiagnostics = true
         #if DEBUG
+        case "diag" where url.path == "/churn":
+            // Debug builds only: churn while scrolling, on the feed this person really uses.
+            let unfiltered = url.query?.contains("unfiltered=1") ?? false
+            Task { await runChurnCheck(seconds: 20, unfiltered: unfiltered) }
+        case "diag" where url.path == "/bottom":
+            Task { await runBottomFlashCheck(seconds: 40) }
         case "diag" where url.path == "/feed-check":
             // Debug builds only: the F1 check, triggered from a Mac over USB.
             Task { await runFeedCheck(seconds: 20, openFeed: true) }

@@ -52,6 +52,12 @@ struct FeedRulesView: View {
                 if model.feedRulesOn {
                     Picker(String(localized: "Feed shows"), selection: audience(.feed)) { audienceOptions }
                     Picker(String(localized: "Stories show"), selection: audience(.stories)) { audienceOptions }
+                    if AppModel.isExperimental(model.igSettings.audience(.feed))
+                        || AppModel.isExperimental(model.igSettings.audience(.stories)) {
+                        Label(String(localized: "Experimental: this rule hides most posts, so the feed can load slowly and show few. “Everyone I follow” is the steady choice."),
+                              systemImage: "flask")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                     Toggle(isOn: Binding(get: { model.igSettings.profileStories },
                                          set: { submit([.setProfileStories(.instagram, $0)]) })) {
                         VStack(alignment: .leading) {
@@ -63,7 +69,7 @@ struct FeedRulesView: View {
                     if let t = f.forceFollowingToggle {
                         Toggle(ToggleTitles.title(t), isOn: toggle(t, recipe))
                     }
-                    Button(String(localized: "Use the Old Instagram preset")) {
+                    Button(String(localized: "Use the Old Instagram preset (Experimental)")) {
                         submit([.setAudience(.instagram, .feed, .mutuals), .setAudience(.instagram, .stories, .mutuals)]
                                + (f.forceFollowingToggle.map { [.setToggle(.instagram, id: $0, on: true)] } ?? []))
                     }
@@ -75,7 +81,10 @@ struct FeedRulesView: View {
     }
 
     @ViewBuilder private var audienceOptions: some View {
-        ForEach(Audience.allCases, id: \.self) { a in Text(AppModel.audienceName(a)).tag(a) }
+        ForEach(Audience.allCases, id: \.self) { a in
+            Text(AppModel.isExperimental(a) ? String(localized: "\(AppModel.audienceName(a)) (Experimental)")
+                                            : AppModel.audienceName(a)).tag(a)
+        }
     }
 
     private func audience(_ s: FeedSurface) -> Binding<Audience> {
@@ -309,7 +318,7 @@ struct ImportExportView: View {
                     step(1, "In the Instagram app or website open **Accounts Center**.")
                     step(2, "Tap **Your information and permissions** › **Download your information**.")
                     step(3, "Choose **Some of your information**, then only **Followers and following**.")
-                    step(4, "Choose **Download to device**, format **JSON** (not HTML), any date range (All time).")
+                    step(4, "Choose **Download to device**. Format: **HTML or JSON**, both work. Date range: **All time**.")
                     step(5, "Instagram emails you when it's ready (minutes to a day). Save the .zip to Files.")
                     step(6, "Come back here and import it.")
                 } header: { Text("Get your data") }
@@ -324,6 +333,16 @@ struct ImportExportView: View {
                               + (s.closeFriends.map { String(localized: ", \($0) close friends") } ?? ""),
                               systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
+                        if let r = s.partialRange {
+                            Label(String(localized: "This export only covers \(r.start.formatted(date: .abbreviated, time: .omitted))–\(r.end.formatted(date: .abbreviated, time: .omitted)). People you've followed for longer are missing. For the full list, request a new export with Date range: All time."),
+                                  systemImage: "calendar.badge.exclamationmark")
+                                .foregroundStyle(.orange)
+                        }
+                        if s.closeFriendsNotIncluded {
+                            Label(String(localized: "Close friends weren't imported: Instagram's HTML export doesn't say who they are. Use Import Close Friends instead."),
+                                  systemImage: "star.slash")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     if let problem { Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
                 } footer: {
@@ -354,7 +373,6 @@ struct ImportExportView: View {
 
     static func describe(_ error: Error) -> String {
         switch error as? ExportImporter.Failure {
-        case .htmlExport: String(localized: "That export is in HTML. Request it again with format JSON.")
         case .notAnExport: String(localized: "No followers or following lists found. Choose the .zip from Instagram, or the followers_1.json and following.json files.")
         case .noFollowingList: String(localized: "The export has followers but no following list. Include \"Followers and following\" when you request it.")
         case .unreadableArchive: String(localized: "The .zip couldn't be read. Try downloading it again.")
