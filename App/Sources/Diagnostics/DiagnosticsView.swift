@@ -88,6 +88,13 @@ struct DiagnosticsView: View {
             }
 
             Section {
+                Button("Report what the feed is made of") { Task { await feedReport() } }
+                Button("Watch the feed for flashes (30 s)") { Task { await flashWatch() } }
+            } header: { Text("F1 · Feed never flashes") } footer: {
+                Text("Sign in to Instagram first. The report logs counts and tag shapes only (no names). The watch switches to the Instagram tab: scroll the feed up and down for 30 seconds; every frame it counts posts that were visible before being approved. The result lands in the log and under Spike results.")
+            }
+
+            Section {
                 Button("Run S9 again · Does ?variant=following stick?") {
                     probe = .init(url: "https://www.instagram.com/?variant=following", store: .platform(.instagram), ua: .webKitDefault,
                                   check: .followingVariant)
@@ -241,6 +248,32 @@ struct DiagnosticsView: View {
     }
 
     private func refresh() { entries = DiagnosticsLog.entries(model.store) }
+
+    private func feedReport() async {
+        guard let c = model.controller(for: .instagram) else { return log("feed report: Instagram isn't enabled") }
+        do {
+            let r = try await c.runDiagnostic("return window.__bzFeedReport ? JSON.stringify(window.__bzFeedReport()) : 'filter script not installed'")
+            log("feed report: \(r as? String ?? "?")")
+        } catch { log("feed report failed: \((error as NSError).code)") }
+    }
+
+    private func flashWatch() async {
+        guard let c = model.controller(for: .instagram) else { return log("flash watch: Instagram isn't enabled") }
+        model.selectedTab = .lite(.instagram)
+        model.showToast(String(localized: "Scroll the feed for 30 seconds…"), kind: "diag.flash")
+        do {
+            let raw = try await c.runDiagnostic("return window.__bzFlashWatch ? JSON.stringify(await window.__bzFlashWatch(30000)) : '{}'")
+            let json = (raw as? String) ?? "{}"
+            let d = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] ?? [:]
+            let frames = d["frames"] as? Int ?? 0, flashes = d["flashFrames"] as? Int ?? 0
+            log("flash watch: \(flashes) frames with an unapproved post visible, out of \(frames) (worst \(d["worst"] as? Int ?? 0) at once) · \(json)")
+            let status: SpikeStatus = flashes > 0 ? .fail : (frames >= 300 ? .pass : .unknown)
+            results.set("F1", status, note: "\(flashes) flash frames in \(frames)", source: .check)
+            results.save(model.store)
+            model.showToast(flashes == 0 ? String(localized: "No flashes in \(frames) frames.") : String(localized: "\(flashes) frames showed a post too early."),
+                            kind: "diag.flash")
+        } catch { log("flash watch failed: \((error as NSError).code)") }
+    }
 
     private func startS7(minutes: Double = 5, backdate: Bool) {
         do { log(try DiagnosticsShield.startPass(minutes: minutes, backdate: backdate, shared: model.store)) } catch {
@@ -476,6 +509,10 @@ enum SpikeCatalog {
               tests: "Does web.snapchat.com chat work inside breakZero?",
               ifPass: "A Snapchat lite tab is possible.",
               ifFail: "Spotlight can only be blocked by shielding the app (paid build)."),
+        .init(id: "F1", title: "Feed never flashes",
+              tests: "Is any post you shouldn't see ever on screen, even for one frame, while the feed loads and scrolls?",
+              ifPass: "Posts outside your rules never appear.",
+              ifFail: "Some posts appeared before being hidden; the log says what the feed is made of so the filter can be fixed."),
         .init(id: "S9", title: "Following feed sticks",
               tests: "Does ?variant=following stay after tapping the Instagram logo and going back?",
               ifPass: "The Following feed stays put; the forced redirect rarely has to act.",

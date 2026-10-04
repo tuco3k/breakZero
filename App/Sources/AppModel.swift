@@ -169,7 +169,9 @@ final class AppModel {
     static let strings = LiteStrings(
         needsUpdate: String(localized: "Filter needs an update"),
         report: String(localized: "Report"),
-        caughtUp: String(localized: "You're all caught up")
+        caughtUp: String(localized: "You're all caught up"),
+        hide: String(localized: "Hide"),
+        finding: String(localized: "Finding posts from your people…")
     )
 
     func controller(for p: Platform) -> LiteWebController? {

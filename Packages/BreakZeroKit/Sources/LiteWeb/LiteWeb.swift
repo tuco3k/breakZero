@@ -9,12 +9,16 @@ public struct LiteStrings: Codable, Sendable, Equatable {
     public var caughtUp: String
     /// Feed rules: the one-tap hide button on a post.
     public var hide: String
+    /// Feed rules: shown while many posts in a row are being hidden.
+    public var finding: String
 
-    public init(needsUpdate: String, report: String, caughtUp: String = "You're all caught up", hide: String = "Hide") {
+    public init(needsUpdate: String, report: String, caughtUp: String = "You're all caught up", hide: String = "Hide",
+                finding: String = "Finding posts from your people…") {
         self.needsUpdate = needsUpdate
         self.report = report
         self.caughtUp = caughtUp
         self.hide = hide
+        self.finding = finding
     }
 }
 

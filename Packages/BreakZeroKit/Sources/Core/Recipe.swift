@@ -354,6 +354,8 @@ extension Recipe {
         public var caughtUpAfter: Int
         /// Seconds without a new post (last one hidden) before "You're all caught up".
         public var idleSeconds: Int
+        /// Hidden posts in a row before "Finding posts from your people…". nil = 5.
+        public var findingAfter: Int?
         /// Setup: list → path regex (named group `owner` for followers/following).
         public var scanRoutes: [String: String]
         /// Setup, Close Friends: selector of a checked row's checkbox.

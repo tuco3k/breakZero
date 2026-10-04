@@ -113,6 +113,7 @@
       storyExempt: setOf(ff.storyExempt),
       storyAuthor: ff.storyAuthor,
       caughtUpAfter: ff.caughtUpAfter || 20,
+      findingAfter: ff.findingAfter || 5,
       idleMs: (ff.idleSeconds || 4) * 1000
     };
   }
@@ -201,32 +202,149 @@
   }
 
   /*
-   * Feed pass: mark allowed posts and tray items ok (default-deny CSS hides the rest), record the
-   * tray order (for story skipping), collect who was hidden (status pill) and decide when the feed
-   * is "caught up". Re-checks every post every time: React reuses nodes for new content.
-   * Returns { posts, okPosts, run, caughtUp, hidden: [usernames] }.
+   * Feed screening (QUESTIONS #61). Every feed item is hidden by CSS until it carries
+   * data-bz-fr="ok". Items are found by the recipe's selector *and* structurally (the block around a
+   * single post permalink, whatever its tag, marked data-bz-post), and screened synchronously in the
+   * MutationObserver callback, before the browser paints. A reused node whose content changed is
+   * re-screened the same way. Rejected items carry data-bz-fr="no" and take no space.
    */
-  function runFriendsFeed(c, doc, path, base, fs, now) {
+  var POST_ATTR = 'data-bz-post';
+
+  function permalinkPath(c, f, a, base) {
+    var p = anchorPath(c, a, base);
+    return p !== null && f.postLink.test(p) ? p : null;
+  }
+
+  /* Distinct post permalinks inside an element (a post links to itself more than once). */
+  function permalinkCount(c, f, el, base, limit) {
+    var seen = Object.create(null), n = 0;
+    var anchors = el.querySelectorAll('a[href]');
+    for (var i = 0; i < anchors.length && n <= limit; i++) {
+      var p = permalinkPath(c, f, anchors[i], base);
+      if (p !== null && !seen[p]) { seen[p] = true; n++; }
+    }
+    return n;
+  }
+
+  /*
+   * Structural fallback: for a permalink not inside a recognized post, the post is the highest
+   * ancestor that still holds only this one post (below <main>, never the stories tray or our own
+   * elements). Marked data-bz-post so the CSS default-deny covers it too.
+   */
+  function discoverPosts(c, f, root, base) {
+    var found = [];
+    var anchors = root.matches && root.matches('a[href]') ? [root] : root.querySelectorAll('a[href]');
+    for (var i = 0; i < anchors.length; i++) {
+      var a = anchors[i];
+      if (!a.closest('main') || a.closest(f.post) || a.closest('[' + POST_ATTR + ']') || a.closest('[data-bz]')) continue;
+      if (permalinkPath(c, f, a, base) === null) continue;
+      var el = a;
+      while (el.parentElement && !STRUCTURAL.test(el.parentElement.tagName) && !el.parentElement.closest('[data-bz]') &&
+             !el.parentElement.querySelector(f.storyTray) && permalinkCount(c, f, el.parentElement, base, 1) <= 1) {
+        el = el.parentElement;
+      }
+      if (el !== a && !el.hasAttribute(POST_ATTR)) { el.setAttribute(POST_ATTR, ''); found.push(el); }
+    }
+    return found;
+  }
+
+  function postSelector(f) {
+    return f.post + ',[' + POST_ATTR + ']';
+  }
+
+  /* Decide one post. Returns 'ok' | 'no'. */
+  function decidePost(c, f, post, base) {
+    var author = firstProfile(c, f, post, base);
+    return allows(f, 'feed', author) ? 'ok' : 'no';
+  }
+
+  function decideTrayItem(c, f, item, base) {
+    var u = storyUserOf(f, anchorPath(c, item, base) || '');
+    return u && (allows(f, 'stories', u) || f.storyExempt[u]) ? 'ok' : 'no';
+  }
+
+  /*
+   * Screen everything at or under `roots` (and the posts that contain them). Synchronous. Keeps the
+   * scroll position when an approved item above the viewport goes away. Returns { posts, changed }.
+   */
+  function screenRoots(c, doc, path, base, roots, win) {
     var f = c.friends;
-    var out = { posts: 0, okPosts: 0, run: 0, caughtUp: false, hidden: [] };
+    var out = { posts: 0, changed: 0 };
     if (!f || !isFeed(f, path)) return out;
+    var sel = postSelector(f);
+    var posts = [], trays = [];
+    function addPost(p) { if (posts.indexOf(p) < 0) posts.push(p); }
+    function addTray(t) { if (trays.indexOf(t) < 0) trays.push(t); }
+    for (var i = 0; i < roots.length; i++) {
+      var r = roots[i];
+      if (!r || r.nodeType !== 1 || (r.closest && r.closest('[data-bz]') && !r.closest(sel))) continue;
+      discoverPosts(c, f, r, base);
+      var up = r.closest(sel);
+      if (up) addPost(up);
+      var inner = r.querySelectorAll(sel);
+      for (var j = 0; j < inner.length; j++) addPost(inner[j]);
+      var tUp = r.closest(f.storyTray);
+      if (tUp) addTray(tUp);
+      var tIn = r.querySelectorAll(f.storyTray);
+      for (var k = 0; k < tIn.length; k++) addTray(tIn[k]);
+    }
+    // Decide first, then apply, so the scroll anchor is measured before anything moves.
+    var decisions = posts.map(function (p) { return decidePost(c, f, p, base); });
+    var anchor = null, anchorTop = 0;
+    var losing = posts.some(function (p, n) { return decisions[n] === 'no' && p.getAttribute(FR_ATTR) === 'ok' && isAbove(p); });
+    if (losing && win) {
+      var shown = doc.querySelectorAll('[' + FR_ATTR + '="ok"]');
+      for (var s = 0; s < shown.length && !anchor; s++) {
+        var idx = posts.indexOf(shown[s]);
+        if (idx >= 0 && decisions[idx] === 'no') continue;
+        var rect = shown[s].getBoundingClientRect();
+        if (rect.bottom > 0) { anchor = shown[s]; anchorTop = rect.top; }
+      }
+    }
+    posts.forEach(function (p, n) {
+      if (p.getAttribute(FR_ATTR) !== decisions[n]) { p.setAttribute(FR_ATTR, decisions[n]); out.changed++; }
+    });
+    trays.forEach(function (t) {
+      var d = decideTrayItem(c, f, t, base);
+      if (t.getAttribute(FR_ATTR) !== d) { t.setAttribute(FR_ATTR, d); out.changed++; }
+    });
+    if (anchor) {
+      var delta = anchor.getBoundingClientRect().top - anchorTop;
+      if (delta) { try { win.scrollBy(0, delta); } catch (e) { /* not scrollable */ } }
+    }
+    out.posts = posts.length;
+    return out;
+  }
+
+  function isAbove(el) {
+    try { return el.getBoundingClientRect().bottom <= 0; } catch (e) { return false; }
+  }
+
+  /*
+   * Feed pass (frame tick): full screen, then the slower parts: hide buttons, the tray order (for
+   * story skipping), who was hidden (status pill), "Finding posts…" and "You're all caught up".
+   * Returns { posts, okPosts, run, caughtUp, finding, hidden: [usernames] }.
+   */
+  function runFriendsFeed(c, doc, path, base, fs, now, win) {
+    var f = c.friends;
+    var out = { posts: 0, okPosts: 0, run: 0, caughtUp: false, finding: false, hidden: [] };
+    if (!f || !isFeed(f, path)) return out;
+    screenRoots(c, doc, path, base, [doc.documentElement], win);
     var seen = fs.hiddenSeen || (fs.hiddenSeen = Object.create(null));
     function hid(u) {
       if (u && !seen[u]) { seen[u] = true; out.hidden.push(u); }
     }
-    var posts = doc.querySelectorAll(f.post);
+    var posts = doc.querySelectorAll(postSelector(f));
     var lastOk = null;
     for (var i = 0; i < posts.length; i++) {
       var author = firstProfile(c, f, posts[i], base);
-      if (allows(f, 'feed', author)) {
-        if (posts[i].getAttribute(FR_ATTR) !== 'ok') posts[i].setAttribute(FR_ATTR, 'ok');
+      if (posts[i].getAttribute(FR_ATTR) === 'ok') {
         posts[i].setAttribute('data-bz-author', author);
         ensureHideButton(doc, posts[i], author, fs);
         lastOk = posts[i];
         out.okPosts++;
         out.run = 0;
       } else {
-        if (posts[i].hasAttribute(FR_ATTR)) posts[i].removeAttribute(FR_ATTR);
         hid(author);
         out.run++;
       }
@@ -237,12 +355,7 @@
     var order = [];
     for (var j = 0; j < tray.length; j++) {
       var u = storyUserOf(f, anchorPath(c, tray[j], base) || '');
-      if (u && (allows(f, 'stories', u) || f.storyExempt[u])) {
-        if (tray[j].getAttribute(FR_ATTR) !== 'ok') tray[j].setAttribute(FR_ATTR, 'ok');
-      } else {
-        if (tray[j].hasAttribute(FR_ATTR)) tray[j].removeAttribute(FR_ATTR);
-        hid(u);
-      }
+      if (tray[j].getAttribute(FR_ATTR) !== 'ok') hid(u);
       if (u && order.indexOf(u) < 0) order.push(u);
     }
     if (order.length) fs.trayOrder = order;
@@ -252,10 +365,104 @@
     if (fs.card && fs.card.isConnected) {
       out.caughtUp = true;
     } else if (out.run >= f.caughtUpAfter || idle) {
+      removeFinding(fs);
       insertCaughtUp(doc, f, lastOk || posts[0], !lastOk, fs);
       out.caughtUp = !!fs.card;
     }
+    if (!out.caughtUp && out.run >= f.findingAfter && posts.length) {
+      placeFinding(doc, f, lastOk || posts[0], !lastOk, fs);
+      out.finding = true;
+    } else if (!out.caughtUp) {
+      removeFinding(fs);
+    }
     return out;
+  }
+
+  /* The post's row: the highest ancestor that holds no other post. */
+  function rowOf(f, post) {
+    var row = post;
+    var sel = postSelector(f);
+    while (row.parentElement && !STRUCTURAL.test(row.parentElement.tagName) &&
+           row.parentElement.querySelectorAll(sel).length <= 1) {
+      row = row.parentElement;
+    }
+    return row;
+  }
+
+  /* "Finding posts from your people…": after the last shown post while many are hidden in a row. */
+  function placeFinding(doc, f, anchorPost, before, fs) {
+    if (!anchorPost) return;
+    var row = rowOf(f, anchorPost);
+    var list = row.parentElement;
+    if (!list) return;
+    var card = fs.finding && fs.finding.isConnected ? fs.finding : null;
+    var where = before ? row : row.nextSibling;
+    if (card && (before ? card.nextSibling === row : card.previousSibling === row)) return;
+    if (!card) {
+      card = doc.createElement('div');
+      card.setAttribute('data-bz', 'finding');
+      card.setAttribute('role', 'status');
+      card.style.cssText = 'padding:22px 16px;text-align:center;font:500 14px -apple-system,system-ui,sans-serif;opacity:.6';
+      card.textContent = fs.findingText || 'Finding posts from your people…';
+      fs.finding = card;
+    }
+    list.insertBefore(card, where);
+  }
+
+  function removeFinding(fs) {
+    if (fs.finding && fs.finding.parentNode) fs.finding.parentNode.removeChild(fs.finding);
+    fs.finding = null;
+  }
+
+  /* Diagnostics: what the feed is made of on this page (counts and tag shapes, never names). */
+  function feedReport(c, doc, path, base) {
+    var f = c.friends;
+    var r = { feed: !!(f && isFeed(f, path)), rulesActive: !!f, main: !!doc.querySelector('main') };
+    r.article = doc.querySelectorAll('article').length;
+    r.mainArticle = doc.querySelectorAll('main article').length;
+    r.roleArticle = doc.querySelectorAll('[role="article"]').length;
+    if (!f) return r;
+    r.recipeSelector = f.post;
+    r.matchedBySelector = doc.querySelectorAll(f.post).length;
+    r.discovered = doc.querySelectorAll('[' + POST_ATTR + ']').length;
+    r.approved = doc.querySelectorAll('[' + FR_ATTR + '="ok"]').length;
+    r.rejected = doc.querySelectorAll('[' + FR_ATTR + '="no"]').length;
+    var anchors = doc.querySelectorAll('main a[href]');
+    var perma = 0, outside = 0, first = null;
+    for (var i = 0; i < anchors.length; i++) {
+      if (permalinkPath(c, f, anchors[i], base) === null) continue;
+      perma++;
+      if (!anchors[i].closest(postSelector(f))) outside++;
+      if (!first) first = anchors[i];
+    }
+    r.permalinks = perma;
+    r.permalinksOutsidePosts = outside;
+    r.trayItems = doc.querySelectorAll(f.storyTray).length;
+    if (first) {
+      var chain = [];
+      for (var el = first.parentElement; el && chain.length < 10 && el.tagName !== 'BODY'; el = el.parentElement) {
+        var role = el.getAttribute('role');
+        chain.push(el.tagName.toLowerCase() + (role ? '[role=' + role + ']' : '') + (el.hasAttribute(POST_ATTR) ? '{post}' : '') +
+          (el.matches(f.post) ? '{selector}' : ''));
+      }
+      r.firstPostShape = chain.reverse().join(' > ');
+    }
+    return r;
+  }
+
+  /* Diagnostics: is any unapproved post painted? A post is painted if any of its links has boxes. */
+  function paintedUnapproved(c, doc, path, base) {
+    var f = c.friends;
+    if (!f || !isFeed(f, path)) return 0;
+    var anchors = doc.querySelectorAll('main a[href]');
+    var bad = 0;
+    for (var i = 0; i < anchors.length; i++) {
+      if (permalinkPath(c, f, anchors[i], base) === null) continue;
+      var post = anchors[i].closest(postSelector(f));
+      var ok = post && post.getAttribute(FR_ATTR) === 'ok';
+      if (!ok && anchors[i].getClientRects().length > 0) bad++;
+    }
+    return bad;
   }
 
   /*
@@ -264,23 +471,29 @@
    * instant) and hides the post here at once.
    */
   function ensureHideButton(doc, post, author, fs) {
-    var btn = post.querySelector('button[data-bz="hide"]');
+    var wrap = post.querySelector(':scope > [data-bz="hidewrap"]');
+    var btn = wrap && wrap.querySelector('button');
     if (btn && btn.getAttribute('data-bz-user') === author) return;
-    if (btn) btn.parentNode.removeChild(btn);
+    if (wrap) wrap.parentNode.removeChild(wrap);
+    // Our own zero-height, positioned wrapper as the post's first child: the button sits over the
+    // post's top corner without changing any of the site's elements (not even their position).
+    wrap = doc.createElement('div');
+    wrap.setAttribute('data-bz', 'hidewrap');
+    wrap.style.cssText = 'position:relative;height:0;overflow:visible;z-index:5';
     btn = doc.createElement('button');
     btn.type = 'button';
-    btn.setAttribute('data-bz', 'hide');
     btn.setAttribute('data-bz-user', author);
     btn.setAttribute('aria-label', (fs.hideLabel || 'Hide') + ' @' + author);
     btn.textContent = fs.hideText || 'Hide';
-    btn.style.cssText = 'position:absolute;top:10px;right:52px;z-index:5;border:0;border-radius:12px;' +
+    btn.style.cssText = 'position:absolute;top:10px;right:52px;border:0;border-radius:12px;' +
       'padding:3px 9px;font:600 12px -apple-system,system-ui,sans-serif;background:rgba(127,127,127,.18);color:inherit';
     btn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
       if (fs.onHide) fs.onHide(author);
     }, true);
-    post.appendChild(btn);
+    wrap.appendChild(btn);
+    post.insertBefore(wrap, post.firstChild);
   }
 
   /*
@@ -290,12 +503,7 @@
    */
   function insertCaughtUp(doc, f, anchorPost, before, fs) {
     if (!anchorPost) return;
-    var row = anchorPost;
-    // Climb to the post's row: the highest ancestor that holds no other post.
-    while (row.parentElement && !STRUCTURAL.test(row.parentElement.tagName) &&
-           row.parentElement.querySelectorAll(f.post).length <= 1) {
-      row = row.parentElement;
-    }
+    var row = rowOf(f, anchorPost);
     var list = row.parentElement;
     if (!list) return;
     var card = doc.createElement('div');
@@ -498,7 +706,7 @@
       if (isHiddenByUs(a, hideSelectors)) continue;
       var p = anchorPath(c, a, base);
       if (p === null) continue;
-      if (f.postLink.test(p) && !a.closest(f.post)) {
+      if (f.postLink.test(p) && !a.closest(postSelector(f))) {
         safeAncestor(a, 3, doc, total).setAttribute(BLUR_ATTR, 'ig.canary.friendsPost');
         post = true;
       }
@@ -642,7 +850,7 @@
     var f = c.friends;
     if (f && isFeed(f, path)) {
       // Default deny: a post or tray item shows only once the script marked it a friend's.
-      css += ':is(' + f.post + '):not([' + FR_ATTR + '="ok"]){display:none!important}';
+      css += ':is(' + postSelector(f) + '):not([' + FR_ATTR + '="ok"]){display:none!important}';
       css += ':is(' + f.storyTray + '):not([' + FR_ATTR + '="ok"]){display:none!important}';
       css += '[data-bz="caughtup"]~*{display:none!important}';
     }
@@ -868,7 +1076,7 @@
     var syncCfg = config.sync || null;
     var sync = null;
     var fs = { postCount: -1, lastNewPostAt: 0, trayOrder: session('bz.tray') || [], card: null, cardHref: null,
-               caughtUpText: strings.caughtUp, hideText: strings.hide, hideLabel: strings.hide,
+               caughtUpText: strings.caughtUp, findingText: strings.finding, hideText: strings.hide, hideLabel: strings.hide,
                scanSent: {}, scanNoChecked: false, gaveUp: false, highlightFrom: session('bz.hl') || null,
                hiddenSeen: Object.create(null), onHide: hideAccount };
 
@@ -908,7 +1116,10 @@
         removeOverlay();
       }
       var here = path + win.location.search;
-      if (fs.cardHref !== null && fs.cardHref !== here) { removeCaughtUp(doc, fs); fs.cardHref = null; }
+      if (fs.cardHref !== null && fs.cardHref !== here) { removeCaughtUp(doc, fs); removeFinding(fs); fs.cardHref = null; }
+      try { screenRoots(c, doc, path, win.location.href, [doc.documentElement], win); } catch (e) {
+        post({ type: 'filterError', id: 'friends.screen' });
+      }
       checkStory();
       schedule();
     }
@@ -987,7 +1198,7 @@
       try { runSearchFilter(c, doc, path, href); } catch (e) { post({ type: 'filterError', id: 'search.match' }); }
       var feedPass = null;
       try {
-        feedPass = runFriendsFeed(c, doc, path, href, fs, clock());
+        feedPass = runFriendsFeed(c, doc, path, href, fs, clock(), win);
         if (fs.card && fs.cardHref === null) {
           fs.cardHref = path + win.location.search;
           post({ type: 'friends', event: 'caughtUp' });
@@ -1153,9 +1364,38 @@
       }, true);
     });
 
-    // Layer 4 trigger: throttled with requestAnimationFrame.
+    /*
+     * Mutations arrive here as a microtask, before the browser paints: screen exactly what changed
+     * now (feed items, tray, story viewer, matching search), and leave the rest to the frame tick.
+     */
+    function onMutations(records) {
+      try {
+        var path = win.location.pathname;
+        if (c.friends && isFeed(c.friends, path)) {
+          var roots = [];
+          for (var i = 0; i < records.length; i++) {
+            var rec = records[i];
+            roots.push(rec.target);
+            if (rec.addedNodes) {
+              for (var j = 0; j < rec.addedNodes.length; j++) {
+                var node = rec.addedNodes[j];
+                if (node.nodeType === 1 && !node.hasAttribute('data-bz')) roots.push(node);
+              }
+            }
+          }
+          screenRoots(c, doc, path, win.location.href, roots, win);
+        }
+        if (c.friends && c.friends.storyRoute.test(path)) checkStory();
+        if (c.searchMatching) runSearchFilter(c, doc, path, win.location.href);
+      } catch (e) {
+        post({ type: 'filterError', id: 'friends.screen' });
+      }
+      schedule();
+    }
+
+    // Layer 4 trigger: synchronous screening, then the rest throttled with requestAnimationFrame.
     try {
-      var mo = new win.MutationObserver(schedule);
+      var mo = new win.MutationObserver(onMutations);
       mo.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['href'] });
     } catch (e) { post({ type: 'filterError', id: 'observer' }); }
 
@@ -1281,6 +1521,25 @@
       }
     }
 
+    /* Diagnostics (native calls these): the feed's structure, and a watch for painted unapproved posts. */
+    win.__bzFeedReport = function () {
+      return feedReport(c, doc, win.location.pathname, win.location.href);
+    };
+    win.__bzFlashWatch = function (ms) {
+      return new Promise(function (resolve) {
+        var end = clock() + (ms || 30000), frames = 0, flashFrames = 0, worst = 0;
+        var raf = win.requestAnimationFrame || function (fn) { return win.setTimeout(fn, 16); };
+        function frame() {
+          frames++;
+          var bad = paintedUnapproved(c, doc, win.location.pathname, win.location.href);
+          if (bad) { flashFrames++; worst = Math.max(worst, bad); }
+          if (clock() < end) raf(frame);
+          else resolve({ frames: frames, flashFrames: flashFrames, worst: worst, report: feedReport(c, doc, win.location.pathname, win.location.href) });
+        }
+        raf(frame);
+      });
+    };
+
     // Native pushes new rules/limits here (budget ran out, schedule started) without a reload.
     // Page scripts could call it too; the native watchdog checks independently every second.
     win.__bzUpdate = function (next) {
@@ -1343,6 +1602,10 @@
     nextFriendStory: nextFriendStory,
     runScan: runScan,
     runSearchFilter: runSearchFilter,
+    screenRoots: screenRoots,
+    discoverPosts: discoverPosts,
+    feedReport: feedReport,
+    paintedUnapproved: paintedUnapproved,
     runFriendsCanaries: runFriendsCanaries,
     removeCaughtUp: removeCaughtUp,
     install: install

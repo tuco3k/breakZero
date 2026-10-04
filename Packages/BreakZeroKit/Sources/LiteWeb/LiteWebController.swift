@@ -165,6 +165,12 @@ public final class LiteWebController: NSObject {
         webView.url.map(RuleEngine.path)
     }
 
+    /// Diagnostics only: run a page-world script that returns a value (it may `await`). Used for the
+    /// feed structure report and the flash watch; results are counts and tag shapes, never content.
+    public func runDiagnostic(_ body: String) async throws -> Any? {
+        try await webView.callAsyncJavaScript(body, arguments: [:], in: nil, contentWorld: .page)
+    }
+
     /// Pause every `<video>`/`<audio>` (used when a limit or schedule blocks this platform).
     public func pauseMedia() {
         webView.evaluateJavaScript("document.querySelectorAll('video,audio').forEach(function(m){try{m.pause()}catch(e){}});", in: nil, in: .page) { _ in }

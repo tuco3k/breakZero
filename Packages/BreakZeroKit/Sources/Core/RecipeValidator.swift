@@ -146,6 +146,7 @@ public enum RecipeValidator {
             for e in f.storyExempt { check(Friends.isValid(e), "friendsFilter.storyExempt: invalid \(e)") }
             check((1...200).contains(f.caughtUpAfter), "friendsFilter.caughtUpAfter out of range 1...200")
             check((1...60).contains(f.idleSeconds), "friendsFilter.idleSeconds out of range 1...60")
+            if let n = f.findingAfter { check((1...f.caughtUpAfter).contains(n), "friendsFilter.findingAfter must be 1...caughtUpAfter") }
             for (list, r) in f.scanRoutes {
                 check(FriendsScanList(rawValue: list) != nil, "friendsFilter.scanRoutes: unknown list \(list)")
                 checkRegex(r, "friendsFilter.scanRoutes.\(list)")

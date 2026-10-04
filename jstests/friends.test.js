@@ -73,7 +73,7 @@ test('no data and no never list: nothing to filter, no friends CSS; the collecto
 test('feed CSS: default deny for posts and tray items, only on the feed', () => {
   const c = compiled();
   const css = bz.cssFor(c, '/');
-  assert.match(css, /:is\(main article\):not\(\[data-bz-fr="ok"\]\)\{display:none!important\}/);
+  assert.match(css, /:is\(main article, main \[role="article"\],\[data-bz-post\]\):not\(\[data-bz-fr="ok"\]\)\{display:none!important\}/);
   assert.match(css, /:is\(a\[href\^="\/stories\/"\]\):not\(\[data-bz-fr="ok"\]\)\{display:none!important\}/);
   assert.doesNotMatch(bz.cssFor(c, '/stranger/'), /data-bz-fr/, 'profiles you open are untouched');
   assert.equal(bz.cssFor(c, '/direct/t/1/'), '', 'DMs are an allow zone');
@@ -151,10 +151,11 @@ test('stories tray follows the stories rule; order recorded for skipping', () =>
 test('one-tap hide: shown posts get our button; tapping it hides the author at once and tells native', () => {
   const p = page('ig-feed-friends.html', IG + '/?variant=following');
   p.ctl.tick();
-  const btn = p.doc.querySelector('#p-alice button[data-bz="hide"]');
+  const btn = p.doc.querySelector('#p-alice [data-bz="hidewrap"] button');
   assert.ok(btn, 'button on a shown post');
   assert.equal(btn.getAttribute('aria-label'), 'Ocultar @alice');
-  assert.equal(p.doc.querySelector('#p-brand button[data-bz="hide"]'), null, 'not on hidden posts');
+  assert.equal(p.doc.querySelector('#p-brand [data-bz="hidewrap"]'), null, 'not on hidden posts');
+  assert.equal(p.doc.querySelector('#p-alice').firstElementChild.getAttribute('data-bz'), 'hidewrap', 'our own wrapper, first child');
   btn.click();
   assert.deepEqual(sent(p, 'hideAccount'), [{ type: 'hideAccount', username: 'alice' }]);
   p.ctl.tick();
@@ -459,7 +460,7 @@ test('auto-scroll warning detection is structural, not text', () => {
 test('allow zones and profiles are untouched while feed rules are on', () => {
   const thread = page('ig-thread.html', IG + '/direct/t/123/');
   thread.ctl.tick();
-  assert.equal(thread.doc.querySelectorAll('[data-bz-hidden],[data-bz-blur],[data-bz-fr],button[data-bz]').length, 0);
+  assert.equal(thread.doc.querySelectorAll('[data-bz-hidden],[data-bz-blur],[data-bz-fr],[data-bz="hidewrap"]').length, 0);
   assert.equal(thread.nav.length, 0);
   const profile = page('ig-profile.html', IG + '/stranger/');
   profile.ctl.tick();

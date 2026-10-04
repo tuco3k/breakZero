@@ -1,6 +1,6 @@
 {
   "platform": "instagram",
-  "version": 4,
+  "version": 5,
   "minEngine": 1,
   "hosts": ["instagram.com", "www.instagram.com", "m.instagram.com"],
   "authHosts": ["accounts.instagram.com", "www.facebook.com", "m.facebook.com", "accountscenter.instagram.com"],
@@ -62,7 +62,7 @@
     "feedRoutes": ["^/$"],
     "feedPath": "/",
     "followingQuery": "variant=following",
-    "post": "main article",
+    "post": "main article, main [role=\"article\"]",
     "profileLink": "^/(?<user>[A-Za-z0-9._]{1,30})/?$",
     "reservedPaths": ["about", "accounts", "ajax", "api", "ar", "challenge", "create", "data", "developer", "direct", "emails", "explore", "graphql", "help", "jobs", "legal", "lite", "locations", "nametag", "notifications", "oauth", "p", "press", "privacy", "qr", "reel", "reels", "session", "settings", "shop", "static", "stories", "tags", "threads", "topics", "tv", "web", "your_activity"],
     "postLink": "^/(p|reels?|tv)/[A-Za-z0-9_-]+",
@@ -71,6 +71,7 @@
     "storyExempt": ["highlights"],
     "storyAuthor": "section header a[href]",
     "caughtUpAfter": 20,
+    "findingAfter": 5,
     "idleSeconds": 4,
     "scanRoutes": {
       "followers": "^/(?<owner>[A-Za-z0-9._]+)/followers/?$",
