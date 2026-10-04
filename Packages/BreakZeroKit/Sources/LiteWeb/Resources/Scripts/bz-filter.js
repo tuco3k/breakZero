@@ -438,6 +438,7 @@
     r.permalinks = perma;
     r.permalinksOutsidePosts = outside;
     r.trayItems = doc.querySelectorAll(f.storyTray).length;
+    r.tray = trayProbe(c, f, doc, base);
     if (first) {
       var chain = [];
       for (var el = first.parentElement; el && chain.length < 10 && el.tagName !== 'BODY'; el = el.parentElement) {
@@ -448,6 +449,38 @@
       r.firstPostShape = chain.reverse().join(' > ');
     }
     return r;
+  }
+
+  /*
+   * Diagnostics: what the stories tray is made of when its items aren't /stories/ links. Looks at
+   * clickable things with an image before the first post. Counts and tag shapes only; alt texts are
+   * only compared with usernames we already know (how many match), never reported.
+   */
+  function trayProbe(c, f, doc, base) {
+    var firstPost = doc.querySelector(postSelector(f));
+    var known = Object.create(null);
+    [f.feed, f.stories, f.never].forEach(function (set) { if (set) Object.keys(set).forEach(function (u) { known[u] = true; }); });
+    var cands = doc.querySelectorAll('main button, main [role="button"], main a[href], main li, main [role="menuitem"]');
+    var shapes = Object.create(null), count = 0, withAlt = 0, altKnown = 0, withHref = 0, withCanvas = 0;
+    for (var i = 0; i < cands.length; i++) {
+      var el = cands[i];
+      if (firstPost && !(el.compareDocumentPosition(firstPost) & 4)) continue;   // only before the first post
+      var img = el.querySelector('img');
+      if (!img) continue;
+      count++;
+      var role = el.getAttribute('role');
+      var shape = el.tagName.toLowerCase() + (role ? '[role=' + role + ']' : '') + '<' + (el.parentElement ? el.parentElement.tagName.toLowerCase() : '') +
+        (el.parentElement && el.parentElement.getAttribute('role') ? '[role=' + el.parentElement.getAttribute('role') + ']' : '') + '>';
+      shapes[shape] = (shapes[shape] || 0) + 1;
+      var alt = img.getAttribute('alt') || '';
+      if (alt) withAlt++;
+      var tokens = alt.toLowerCase().match(/[a-z0-9._]{2,30}/g) || [];
+      if (tokens.some(function (t) { return known[t]; })) altKnown++;
+      if (el.getAttribute('href') || el.querySelector('a[href]')) withHref++;
+      if (el.querySelector('canvas')) withCanvas++;
+    }
+    return { candidates: count, shapes: shapes, withAlt: withAlt, altContainsKnownUser: altKnown, withHref: withHref, withCanvas: withCanvas,
+             knownUsers: Object.keys(known).length };
   }
 
   /* Diagnostics: is any unapproved post painted? A post is painted if any of its links has boxes. */

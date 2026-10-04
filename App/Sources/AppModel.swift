@@ -756,6 +756,38 @@ final class AppModel {
         }
     }
 
+    // MARK: Feed check (Diagnostics F1)
+
+    /// What the Instagram feed is made of (counts and tag shapes only, never names), logged.
+    @discardableResult
+    func logFeedReport() async -> String {
+        guard let c = controller(for: .instagram) else { return "Instagram isn't enabled" }
+        let r = (try? await c.runDiagnostic("return window.__bzFeedReport ? JSON.stringify(window.__bzFeedReport()) : 'filter script not installed'")) as? String
+            ?? "report failed"
+        log("feed report: \(r)", source: "diag")
+        return r
+    }
+
+    /// Watch the feed for `seconds`, counting frames where an unapproved post had a layout box.
+    /// Returns (frames, flash frames), or nil if it couldn't run.
+    @discardableResult
+    func runFeedCheck(seconds: Int, openFeed: Bool) async -> (frames: Int, flashes: Int)? {
+        guard let c = controller(for: .instagram) else { return nil }
+        selectedTab = .lite(.instagram)
+        if openFeed, let f = recipes[.instagram]?.friendsFilter {
+            // A fresh tab loads its landing page first (after the session check); wait for that.
+            try? await Task.sleep(for: .seconds(4))
+            c.load(path: f.feedPath(forceFollowing: true))
+            try? await Task.sleep(for: .seconds(8))
+        }
+        await logFeedReport()
+        let raw = (try? await c.runDiagnostic("return window.__bzFlashWatch ? JSON.stringify(await window.__bzFlashWatch(\(seconds * 1000))) : '{}'")) as? String ?? "{}"
+        let d = (try? JSONSerialization.jsonObject(with: Data(raw.utf8))) as? [String: Any] ?? [:]
+        let frames = d["frames"] as? Int ?? 0, flashes = d["flashFrames"] as? Int ?? 0
+        log("flash watch: \(flashes) frames with an unapproved post visible, out of \(frames) (worst \(d["worst"] as? Int ?? 0) at once) · \(raw)", source: "diag")
+        return (frames, flashes)
+    }
+
     // MARK: Lock grace period
 
     /// Seconds left to undo the Lock, or nil.
@@ -798,6 +830,11 @@ final class AppModel {
         case "diagnostics":
             selectedTab = .wall
             showDiagnostics = true
+        #if DEBUG
+        case "diag" where url.path == "/feed-check":
+            // Debug builds only: the F1 check, triggered from a Mac over USB.
+            Task { await runFeedCheck(seconds: 20, openFeed: true) }
+        #endif
         default:
             break
         }

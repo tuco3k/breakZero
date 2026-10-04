@@ -250,29 +250,19 @@ struct DiagnosticsView: View {
     private func refresh() { entries = DiagnosticsLog.entries(model.store) }
 
     private func feedReport() async {
-        guard let c = model.controller(for: .instagram) else { return log("feed report: Instagram isn't enabled") }
-        do {
-            let r = try await c.runDiagnostic("return window.__bzFeedReport ? JSON.stringify(window.__bzFeedReport()) : 'filter script not installed'")
-            log("feed report: \(r as? String ?? "?")")
-        } catch { log("feed report failed: \((error as NSError).code)") }
+        await model.logFeedReport()
+        refresh()
     }
 
     private func flashWatch() async {
-        guard let c = model.controller(for: .instagram) else { return log("flash watch: Instagram isn't enabled") }
-        model.selectedTab = .lite(.instagram)
         model.showToast(String(localized: "Scroll the feed for 30 seconds…"), kind: "diag.flash")
-        do {
-            let raw = try await c.runDiagnostic("return window.__bzFlashWatch ? JSON.stringify(await window.__bzFlashWatch(30000)) : '{}'")
-            let json = (raw as? String) ?? "{}"
-            let d = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] ?? [:]
-            let frames = d["frames"] as? Int ?? 0, flashes = d["flashFrames"] as? Int ?? 0
-            log("flash watch: \(flashes) frames with an unapproved post visible, out of \(frames) (worst \(d["worst"] as? Int ?? 0) at once) · \(json)")
-            let status: SpikeStatus = flashes > 0 ? .fail : (frames >= 300 ? .pass : .unknown)
-            results.set("F1", status, note: "\(flashes) flash frames in \(frames)", source: .check)
-            results.save(model.store)
-            model.showToast(flashes == 0 ? String(localized: "No flashes in \(frames) frames.") : String(localized: "\(flashes) frames showed a post too early."),
-                            kind: "diag.flash")
-        } catch { log("flash watch failed: \((error as NSError).code)") }
+        guard let r = await model.runFeedCheck(seconds: 30, openFeed: false) else { return log("flash watch: Instagram isn't enabled") }
+        let status: SpikeStatus = r.flashes > 0 ? .fail : (r.frames >= 300 ? .pass : .unknown)
+        results.set("F1", status, note: "\(r.flashes) flash frames in \(r.frames)", source: .check)
+        results.save(model.store)
+        refresh()
+        model.showToast(r.flashes == 0 ? String(localized: "No flashes in \(r.frames) frames.") : String(localized: "\(r.flashes) frames showed a post too early."),
+                        kind: "diag.flash")
     }
 
     private func startS7(minutes: Double = 5, backdate: Bool) {

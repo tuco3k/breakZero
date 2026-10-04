@@ -138,3 +138,37 @@ profile, posting, notifications, settings, log out and in.
 
 ## Toasts (on device)
 - [ ] Only ever one toast, at the top; it never blocks a tap and disappears after about 2 s
+
+## Instagram search (on device)
+- [ ] Default (Normal): the search icon is in Instagram's bottom bar; tapping it opens the search box
+      straight away, never the Explore grid of posts
+- [ ] Search finds anyone, including people you don't follow; opening any of them shows their
+      profile normally
+- [ ] No grid of posts or reels appears on the search page, before or after typing; tapping a
+      hashtag or place goes back (those pages stay blocked)
+- [ ] Wall › Instagram › Search › *Only accounts that match my feed rules*: applies at once;
+      results now show only people your feed rule allows (others are simply missing)
+- [ ] *Off*: applies at once; the search icon disappears
+- [ ] With the Lock on, going from Off back to Normal waits the cooldown
+
+## Home feed never flashes (on device)
+- [ ] Open the feed and scroll fast for 2 minutes, up and down: no post ever appears and then
+      vanishes, not even briefly; the feed doesn't jump or stutter
+- [ ] Pull to refresh, then scroll again: same
+- [ ] Go Home → a profile → Back, and Home → a story → close: no flash on returning
+- [ ] While many posts in a row are hidden, a small "Finding posts from your people…" shows, then
+      "You're all caught up" at the end
+- [ ] Stories tray: no circle of someone outside your rules ever appears, even for a moment
+- [ ] Wall › version 5× › Diagnostics › *F1 · Feed never flashes* › *Watch the feed for flashes*:
+      scroll for 30 s; the result is 0 and Spike results shows F1 PASS. If not, also tap *Report what
+      the feed is made of* and send both log lines
+
+## What is the Wall? (on device)
+- [ ] First time on the Wall tab it opens by itself; afterwards from *What is the Wall?*
+- [ ] It uses your real cooldown and undo time (change the cooldown, reopen: the text changes)
+- [ ] "What it can't stop" fits this version (free build: deleting the app removes the Lock; the real
+      apps and Safari aren't blocked)
+- [ ] Turning the Lock on shows the short version (what's locked, how long changes wait) above the
+      hold-to-turn-on button
+- [ ] Every Wall setting has one plain line underneath; nowhere does it say "loosen", "tighten",
+      "ratchet" or explain things with the word "wall"

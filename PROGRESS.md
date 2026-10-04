@@ -9,15 +9,18 @@ free Personal Team. Waiting on owner: install on the iPhone + spike results.
 Phase 1 in progress: recipes, rule engine, all five filter layers and their tests are written;
 the WebKit glue compiles but hasn't run on a device.
 
-Test status (macOS, 2026-10-01, after feed rules rev. 2): `npm test` (Node 26) → **119 pass**; `swift test` on
-the macOS host → 174 pass (Core 154, LiteWeb 15, Shielding 5).
+Test status (macOS, 2026-10-04, after search / flash fix / Wall text): `npm test` (Node 26) → **138 pass**;
+`swift test` on the macOS host → 179 pass (Core 159, LiteWeb 15, Shielding 5).
 
 Test status (Linux, Swift 6.0.3 + Node 22):
 - `cd Packages/BreakZeroKit && swift test` → **111 tests pass** (Core incl. limits with a fake clock, LiteWeb pure parts, Shielding with fakes).
 - `cd jstests && npm ci && npm test` → **62 tests pass** (shared route vectors for guard and watchdog, DOM filters, canaries, autoplay, media diagnostics).
 
 Test status (macOS, Xcode 27, iPhone 17 Pro Simulator iOS 26.2), `xcodebuild … CODE_SIGNING_ALLOWED=NO build test`:
-- **177 tests pass** (2026-10-01, feed rules rev. 2; build has no warnings): CoreTests 154, LiteWebTests 15, ShieldingTests 5, breakZeroTests 3.
+- **186 tests pass** (2026-10-04; build has no warnings, full Screen Time build too): CoreTests 159, LiteWebTests 15, ShieldingTests 5, breakZeroTests 7.
+- Real-WebKit flash harness (Simulator Safari, `bz-filter.js` on a synthetic feed with bursts and
+  node reuse): 0 flash frames in 239, 124/124 allowed posts shown, every Hide button on its post.
+- (Feed rules rev. 2: 177.)
 - `scripts/check-release-no-debug-reset.sh` → OK (debug reset in Debug, absent from Release).
 - (Old Instagram rev. 1: 141.)
 - (Round 1: 113 tests.): CoreTests 96, LiteWebTests 11, ShieldingTests 5, breakZeroTests 1.
@@ -165,20 +168,30 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
 - [ ] Owner: a real export, a real auto-scroll run, and Instagram's real markup (post container,
   tray links, viewer header, hide button position) — see below.
 
+## Round 3 (2026-10-04, QUESTIONS #58–63)
+- [x] Search modes: Normal (default) / Only accounts that match my feed rules / Off. Normal shows the
+  search icon, sends `/explore/` straight to the search page, hides any post grid there (canary);
+  hashtag/place pages stay blocked. Narrowing instant, widening waits. Shared route vectors.
+- [x] Feed never flashes. Cause: approvals happened on the frame tick, so a post node React reused
+  for another account kept its "approved" mark for a frame, and posts that aren't `<article>` were
+  never hidden. Now every feed item is screened synchronously in the MutationObserver (before
+  paint), found by selector *and* structurally, hidden until approved; scroll anchored; "Finding
+  posts from your people…". Node flash suite (fails on the old code) + real-WebKit harness: 0.
+  Diagnostics F1 report + flash watch (also `breakzero://diag/feed-check` in Debug builds).
+- [x] "What is the Wall?" rewritten in plain words from real settings and build; short version in
+  the hold-to-confirm; one plain line under every Wall setting; jargon removed app-wide (tested).
+- [x] Built, 186 Xcode + 138 Node tests, installed and running on the iPhone.
+
 ## Next — what the owner should test on the phone (lite build is enough)
-Installed 2026-10-01 (free team; reinstall after 7 days). Full steps: `docs/QA.md`.
-1. **Import your real export** (Feed rules › Import): note the summary line and how long it took.
-2. **Feed**: only mutuals; no ads or suggestions; "You're all caught up" after scrolling; the small
-   *Hide* button on posts sits somewhere sensible (tell me if it covers anything).
-3. **Stories**: tray only mutuals; fast tap-through never flashes anyone else; a non-mutual's ring
-   on their profile plays only them; with the setting off you stay on their profile.
-4. **Pill**: "Mutuals only · N hidden" → Hidden recently → Always / Never show.
-5. **Auto-scroll (optional)**: run Re-sync on your account; report how far it got and whether
-   Instagram showed anything.
-6. **Limits**: try a typed value (e.g. 7 min) and Per app vs Both for Reels/Shorts.
-7. **Lock**: hold to turn on, see the 10-minute Undo countdown, Undo.
-8. **Still works**: DMs, search, profiles, posting, notifications.
-From before: YouTube with VPN on/off, the 2-minute budget hard stop, Snapchat S8, checklist 1–17.
+Installed 2026-10-04 (free team; reinstall after 7 days). Full steps: `docs/QA.md`.
+1. **Search**: the search icon is back; search finds anyone; no Explore grid; try *Only matching*
+   and *Off* (Wall › Instagram › Search).
+2. **Feed**: scroll fast for 2 minutes: nothing appears and vanishes; no jumps. Then Diagnostics ›
+   *F1* › *Watch the feed for flashes* while scrolling: should say 0.
+3. **Stories tray / viewer**: no flash of someone outside your rules.
+4. **What is the Wall?**: read it; check it matches your cooldown; turn the Lock on to see the short
+   version above the hold button.
+From before: real export import, Hidden recently, auto-scroll (optional), limit modes, DMs still work.
 
 ## Unverified
 Everything compiles on macOS (lite build, 2026-10-01; full build last checked at `0ec5866`). The lite
