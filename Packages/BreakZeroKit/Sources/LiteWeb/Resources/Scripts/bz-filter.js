@@ -360,8 +360,11 @@
     }
     if (order.length) fs.trayOrder = order;
 
-    if (posts.length !== fs.postCount) { fs.postCount = posts.length; fs.lastNewPostAt = now; }
-    var idle = posts.length > 0 && out.run > 0 && now - fs.lastNewPostAt >= f.idleMs;
+    // "Nothing new for a while" only counts while you're at the bottom: the site loads more only
+    // as you scroll, so idling higher up is not the end of the feed.
+    var atBottom = isAtBottom(doc, win);
+    if (posts.length !== fs.postCount || !atBottom) { fs.postCount = posts.length; fs.lastNewPostAt = now; }
+    var idle = posts.length > 0 && out.run > 0 && atBottom && now - fs.lastNewPostAt >= f.idleMs;
     if (fs.card && fs.card.isConnected) {
       out.caughtUp = true;
     } else if (out.run >= f.caughtUpAfter || idle) {
@@ -376,6 +379,15 @@
       removeFinding(fs);
     }
     return out;
+  }
+
+  /* Scrolled to (about) the end of the page. Without layout (tests) this is true. */
+  function isAtBottom(doc, win) {
+    if (!win) return true;
+    var el = doc.scrollingElement || doc.documentElement;
+    var h = el.scrollHeight, view = win.innerHeight || 0;
+    if (!h || !view) return true;
+    return (win.scrollY || el.scrollTop || 0) + view >= h - view;
   }
 
   /* The post's row: the highest ancestor that holds no other post. */
@@ -1418,6 +1430,8 @@
           }
           screenRoots(c, doc, path, win.location.href, roots, win);
         }
+        // The other hiding rules (suggestions, reel links…) also before paint, not a frame later.
+        if (!isAllowZone(c, path)) runHeuristics(c, doc, path, win.location.href, post);
         if (c.friends && c.friends.storyRoute.test(path)) checkStory();
         if (c.searchMatching) runSearchFilter(c, doc, path, win.location.href);
       } catch (e) {

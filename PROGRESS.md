@@ -178,6 +178,11 @@ ratchet + pending queue, Hard Lock, trusted elapsed clock, pass ledger, WallEnfo
   paint), found by selector *and* structurally, hidden until approved; scroll anchored; "Finding
   posts from your people…". Node flash suite (fails on the old code) + real-WebKit harness: 0.
   Diagnostics F1 report + flash watch (also `breakzero://diag/feed-check` in Debug builds).
+  **Measured on the owner's iPhone over USB** (signed in, counts only): posts are `main article`,
+  0 flash frames in 3,600 frames over three runs. Also found and fixed there: "You're all caught up"
+  fired after 4 s without scrolling (Instagram loads more only on scroll), hiding the loader; it now
+  needs you at the bottom. Suggestion rows and reel links are now hidden before paint too.
+  The Following feed has no stories tray on mobile web (QUESTIONS #64).
 - [x] "What is the Wall?" rewritten in plain words from real settings and build; short version in
   the hold-to-confirm; one plain line under every Wall setting; jargon removed app-wide (tested).
 - [x] Built, 186 Xcode + 138 Node tests, installed and running on the iPhone.

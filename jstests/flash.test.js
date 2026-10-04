@@ -190,3 +190,29 @@ test('diagnostics: structure report and the painted-unapproved counter', async (
   const c = bz.compile(active('instagram', {}, true, 'togglesDecide', PEOPLE));
   assert.equal(bz.paintedUnapproved(c, doc, '/', window.location.href), 0);
 });
+
+test('suggested-accounts rows and reel links are hidden before the first paint too', async () => {
+  const { window, doc } = page();
+  doc.getElementById('list').insertAdjacentHTML('beforeend',
+    '<div id="sg1"><div><div id="sg"><a href="/explore/people/">see all</a><a href="/brand/">brand</a></div></div></div>' +
+    '<div id="rl"><a id="reel" href="/reel/ZZZ/">reel</a></div>');
+  await nextTask();
+  assert.equal(visible(window, doc.getElementById('sg')), false, 'suggestions row');
+  assert.equal(visible(window, doc.getElementById('reel')), false, 'reel link');
+});
+
+test('not "caught up" just because nothing loads while you are not at the bottom', () => {
+  const { window, doc, ctl } = page();
+  const el = doc.scrollingElement || doc.documentElement;
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => 5000 });
+  Object.defineProperty(window, 'innerHeight', { configurable: true, get: () => 800 });
+  Object.defineProperty(window, 'scrollY', { configurable: true, get: () => 0, set: () => {} });
+  const c = bz.compile(active('instagram', {}, true, 'togglesDecide', PEOPLE));
+  const fs = { postCount: -1, lastNewPostAt: 0, trayOrder: [], card: null, cardHref: null };
+  bz.runFriendsFeed(c, doc, '/', window.location.href, fs, 0, window);
+  assert.equal(bz.runFriendsFeed(c, doc, '/', window.location.href, fs, 60000, window).caughtUp, false, 'a minute idle at the top');
+  Object.defineProperty(window, 'scrollY', { configurable: true, get: () => 4200, set: () => {} });
+  bz.runFriendsFeed(c, doc, '/', window.location.href, fs, 61000, window);
+  assert.equal(bz.runFriendsFeed(c, doc, '/', window.location.href, fs, 66000, window).caughtUp, true, 'idle at the bottom');
+  assert.ok(ctl);
+});

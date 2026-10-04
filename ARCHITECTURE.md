@@ -282,6 +282,16 @@ Freshness: "Mutuals last updated N days ago"; after 30 days a reminder with *Re-
 **Unchanged:** allow zones, search, profiles, `/p/…`, notifications, canaries, caught-up card,
 forced Following feed (S9 PASS on device), Close Friends page readable (S10 PASS on device).
 
+**Screening (rev. 3, 2026-10-04).** Feed items are screened synchronously in the MutationObserver
+callback (a microtask, so before the browser paints) for exactly what changed, including nodes the
+site reuses for new content; route changes re-screen everything at once. Items are found by the
+recipe selector and structurally (the block around one `/p/` or `/reel/` link, marked
+`data-bz-post`); all are hidden by CSS until approved. The other hiding rules (suggestions, reel
+links) also run in the callback. "Caught up because nothing loads" only counts while scrolled to the
+bottom. Measured on the owner's iPhone (signed in, `?variant=following`): posts are `main article`
+(selector matches, 0 permalinks outside posts), no stories tray on that page, 0 flash frames in
+3,600 frames over three runs. Diagnostics F1 and, in Debug builds, `breakzero://diag/feed-check`.
+
 ## 4d. Limit modes (2026-10-01)
 Minutes are any value 1–240 (stepper), not presets. Short-form: a shared budget across platforms,
 a budget per platform (Reels / Shorts / Spotlight), or both. Daily time: per app, an overall cap
