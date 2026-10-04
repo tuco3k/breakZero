@@ -44,3 +44,54 @@ final class ImportFlowTests: XCTestCase {
         XCTAssertTrue(ImportExportView.describe(ExportImporter.Failure.htmlExport).contains("JSON"))
     }
 }
+
+/// "What is the Wall?" (QUESTIONS #63): plain words, built from real settings and the build.
+final class WallExplainerTests: XCTestCase {
+    let jargon = ["loosen", "tighten", "ratchet", "managedsettings", "familycontrols", "shield"]
+
+    func facts(screenTime: Bool, iOS: (Int, Int) = (26, 2), cooldown: TimeInterval = 86400, grace: TimeInterval = 600) -> WallExplainer.Facts {
+        .init(cooldown: cooldown, grace: grace, lockOn: false, pass: PassRules(), screenTimeBuild: screenTime, iOS: iOS)
+    }
+
+    func testNoJargonAndWallOnlyAsTheName() {
+        for st in [false, true] {
+            let e = WallExplainer.make(facts(screenTime: st))
+            for line in e.allText + WallExplainer.confirmation(facts(screenTime: st)) {
+                let lower = line.lowercased()
+                for word in jargon { XCTAssertFalse(lower.contains(word), "\(word) in: \(line)") }
+                let withoutName = line.replacingOccurrences(of: "the Wall", with: "").replacingOccurrences(of: "The Wall", with: "")
+                XCTAssertFalse(withoutName.lowercased().contains("wall"), "explains with \"wall\": \(line)")
+            }
+        }
+    }
+
+    func testUsesTheRealCooldownAndUndoTime() {
+        let e = WallExplainer.make(facts(screenTime: false, cooldown: 3 * 86400, grace: 300))
+        let text = e.allText.joined(separator: " ")
+        XCTAssertTrue(text.contains(WallExplainer.duration(3 * 86400)), text)
+        XCTAssertTrue(text.contains(WallExplainer.duration(300)))
+        let noUndo = WallExplainer.make(facts(screenTime: false, grace: 0)).allText.joined(separator: " ")
+        XCTAssertTrue(noUndo.contains("can't be undone instantly"))
+        XCTAssertTrue(WallExplainer.confirmation(facts(screenTime: false, cooldown: 3600)).joined().contains(WallExplainer.duration(3600)))
+    }
+
+    func testCantStopMatchesTheBuildAndIOS() {
+        let lite = WallExplainer.make(facts(screenTime: false)).allText.joined(separator: " ")
+        XCTAssertTrue(lite.contains("deleting breakZero removes the Lock"))
+        XCTAssertFalse(lite.contains("Face ID"))
+        let oldIOS = WallExplainer.make(facts(screenTime: true, iOS: (26, 2))).allText.joined(separator: " ")
+        XCTAssertTrue(oldIOS.contains("iOS 26.2"))
+        XCTAssertTrue(oldIOS.contains("Face ID or your passcode"))
+        XCTAssertFalse(oldIOS.contains("deleting breakZero removes"))
+        let newIOS = WallExplainer.make(facts(screenTime: true, iOS: (26, 4))).allText.joined(separator: " ")
+        XCTAssertTrue(newIOS.contains("Screen Time passcode"))
+    }
+
+    func testEveryToggleHasAPlainDescription() throws {
+        for p in Platform.allCases {
+            for t in try RecipeLibrary.bundled(p).toggles {
+                XCTAssertFalse(ToggleTitles.detail(t.id).isEmpty, "missing description for \(t.id)")
+            }
+        }
+    }
+}

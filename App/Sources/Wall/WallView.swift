@@ -3,7 +3,7 @@ import Core
 import SwiftUI
 
 /// Settings, lock, pending queue. Every change goes through the ratchet: tightening applies now,
-/// loosening waits for the cooldown.
+/// less-strict changes wait for the cooldown.
 struct WallView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmSignOut: Platform?
@@ -20,7 +20,7 @@ struct WallView: View {
             graceBanner
             Section {
                 Button { showExplainer = true } label: {
-                    Label(String(localized: "What is the wall?"), systemImage: "questionmark.circle")
+                    Label(String(localized: "What is the Wall?"), systemImage: "questionmark.circle")
                 }
             }
             lockSection
@@ -64,7 +64,7 @@ struct WallView: View {
         }
         .navigationDestination(isPresented: $model.showDiagnostics) { DiagnosticsView() }
         .sheet(item: $confirm) { c in
-            ConfirmLockSheet(confirmation: c, cooldown: model.policy.cooldown, grace: model.policy.lockGraceSeconds) {
+            ConfirmLockSheet(confirmation: c, facts: WallExplainer.Facts(model: model)) {
                 switch c {
                 case .lock: submit(.setLockEnabled(true))
                 case .denyRemoval: submit(.setDenyAppRemoval(true))
@@ -111,32 +111,53 @@ struct WallView: View {
         Section {
             Toggle(isOn: Binding(get: { model.policy.lockEnabled },
                                  set: { on in if on { confirm = .lock } else { submit(.setLockEnabled(false)) } })) {
-                VStack(alignment: .leading) {
-                    Text("Lock")
-                    Text("Loosening waits \(Self.format(model.policy.cooldown))").font(.caption).foregroundStyle(.secondary)
-                }
+                Self.row(String(localized: "Lock"),
+                         String(localized: "Locks your settings: stricter changes apply now, less strict ones wait \(Self.format(model.policy.cooldown))."))
             }
-            Picker("Cooldown", selection: Binding(get: { model.policy.cooldown }, set: { submit(.setCooldown($0)) })) {
+            Picker(selection: Binding(get: { model.policy.cooldown }, set: { submit(.setCooldown($0)) })) {
                 ForEach(Self.cooldownOptions, id: \.self) { Text(Self.format($0)).tag($0) }
+            } label: {
+                Self.row(String(localized: "Cooldown"), String(localized: "How long a less-strict change waits before it applies."))
             }
-            Picker(String(localized: "Undo window after locking"),
-                   selection: Binding(get: { model.policy.lockGraceSeconds }, set: { submit(.setLockGrace(seconds: $0)) })) {
+            Picker(selection: Binding(get: { model.policy.lockGraceSeconds }, set: { submit(.setLockGrace(seconds: $0)) })) {
                 Text("Off").tag(TimeInterval(0))
                 Text("1 min").tag(TimeInterval(60))
                 Text("5 min").tag(TimeInterval(300))
                 Text("10 min").tag(TimeInterval(600))
+            } label: {
+                Self.row(String(localized: "Undo time"), String(localized: "How long you can undo turning the Lock on. It can only be made shorter."))
             }
-            Toggle("Block deleting breakZero", isOn: Binding(get: { model.policy.denyAppRemoval },
-                                                             set: { on in if on { confirm = .denyRemoval } else { submit(.setDenyAppRemoval(false)) } }))
+            Toggle(isOn: Binding(get: { model.policy.denyAppRemoval },
+                                 set: { on in if on { confirm = .denyRemoval } else { submit(.setDenyAppRemoval(false)) } })) {
+                #if BZ_SCREEN_TIME
+                Self.row(String(localized: "Block deleting breakZero"), String(localized: "While locked, breakZero can't be deleted from this iPhone."))
+                #else
+                Self.row(String(localized: "Block deleting breakZero"), String(localized: "Needs Apple's Screen Time permission, which this version doesn't have, so it does nothing here yet."))
+                #endif
+            }
             if let h = model.policy.hardLock, h.until > Date() {
-                LabeledContent(String(localized: "Hard Lock"), value: h.until.formatted(date: .abbreviated, time: .shortened))
+                LabeledContent {
+                    Text(h.until.formatted(date: .abbreviated, time: .shortened))
+                } label: {
+                    Self.row(String(localized: "Hard Lock"), String(localized: "Until then, nothing can be made less strict."))
+                }
             } else {
-                Button(String(localized: "Hard Lock…")) { pickingHardLock = true }
+                Button { pickingHardLock = true } label: {
+                    Self.row(String(localized: "Hard Lock…"), String(localized: "Pick a date. Until then, nothing can be made less strict at all."))
+                }
             }
         } header: {
-            Text("The wall")
+            Text("The Wall")
         } footer: {
-            Text("Tightening applies now. Loosening — turning a rule off, longer or more passes, a shorter cooldown, unlocking — applies only after the cooldown. You can cancel a pending change any time.")
+            Text("Stricter changes apply right away. Less strict ones (turning a block off, raising a limit, more or longer passes, a shorter cooldown, turning the Lock off) wait for the cooldown. You can cancel a waiting change anytime.")
+        }
+    }
+
+    /// A setting's name with a one-line plain description underneath.
+    static func row(_ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).foregroundStyle(.primary)
+            Text(detail).font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -188,7 +209,7 @@ struct WallView: View {
     }
 
     private var pendingSection: some View {
-        Section("Waiting to apply") {
+        Section {
             ForEach(model.lock.pending) { p in
                 HStack {
                     VStack(alignment: .leading) {
@@ -202,6 +223,10 @@ struct WallView: View {
                         .accessibilityLabel(Text("Cancel pending change: \(Self.describe(p.change, policy: model.policy))"))
                 }
             }
+        } header: {
+            Text("Waiting to apply")
+        } footer: {
+            Text("Changes that make breakZero less strict wait here until their time. Cancel any of them anytime.")
         }
     }
 
@@ -209,27 +234,43 @@ struct WallView: View {
         Section(p.displayName) {
             if let recipe = model.recipes[p] {
                 if recipe.landing.options.count > 1 {
-                    Picker("Opens on", selection: Binding(get: { model.policy.settings(for: p).landing ?? recipe.landing.default },
-                                                          set: { submit(.setLanding(p, key: $0)) })) {
+                    Picker(selection: Binding(get: { model.policy.settings(for: p).landing ?? recipe.landing.default },
+                                              set: { submit(.setLanding(p, key: $0)) })) {
                         ForEach(recipe.landing.options.keys.sorted(), id: \.self) { key in
                             Text(ToggleTitles.landing(key)).tag(key)
                         }
+                    } label: {
+                        Self.row(String(localized: "Opens on"), String(localized: "The first page you see in this tab."))
                     }
                 }
                 if recipe.friendsFilter != nil {
                     NavigationLink {
                         FeedRulesView()
                     } label: {
-                        LabeledContent(String(localized: "Feed rules"),
-                                       value: model.feedRulesOn ? model.feedRuleName : String(localized: "Off"))
+                        LabeledContent {
+                            Text(model.feedRulesOn ? model.feedRuleName : String(localized: "Off"))
+                        } label: {
+                            Self.row(String(localized: "Feed rules"), String(localized: "Whose posts and stories your home feed shows."))
+                        }
+                    }
+                }
+                if recipe.search != nil {
+                    Picker(selection: Binding(get: { model.policy.settings(for: p).search }, set: { submit(.setSearchMode(p, $0)) })) {
+                        Text("Normal").tag(SearchMode.normal)
+                        Text("Only accounts that match my feed rules").tag(SearchMode.matching)
+                        Text("Off").tag(SearchMode.off)
+                    } label: {
+                        Self.row(String(localized: "Search"), String(localized: "What search shows. The Explore grid stays hidden either way."))
                     }
                 }
                 // Old Instagram's own switches live on its screen.
                 ForEach(recipe.toggles.filter { $0.id != recipe.friendsFilter?.toggle && $0.id != recipe.friendsFilter?.forceFollowingToggle },
                         id: \.id) { t in
-                    Toggle(ToggleTitles.title(t.id), isOn: Binding(
+                    Toggle(isOn: Binding(
                         get: { model.policy.settings(for: p).isOn(t.id, in: recipe) },
-                        set: { submit(.setToggle(p, id: t.id, on: $0)) }))
+                        set: { submit(.setToggle(p, id: t.id, on: $0)) })) {
+                        Self.row(ToggleTitles.title(t.id), ToggleTitles.detail(t.id))
+                    }
                 }
             }
         }
@@ -237,19 +278,26 @@ struct WallView: View {
 
     private var passSection: some View {
         Section {
-            Stepper("Pass length: \(model.policy.pass.durationMinutes) min",
-                    value: Binding(get: { model.policy.pass.durationMinutes }, set: { submit(.setPassDuration(minutes: $0)) }),
-                    in: 1...60)
-            Stepper("Wait before a pass: \(model.policy.pass.waitSeconds) s",
-                    value: Binding(get: { model.policy.pass.waitSeconds }, set: { submit(.setPassWait(seconds: $0)) }),
-                    in: 0...600, step: 10)
-            Stepper("Passes per day: \(model.policy.pass.dailyCap)",
-                    value: Binding(get: { model.policy.pass.dailyCap }, set: { submit(.setPassCap($0)) }),
-                    in: 0...20)
+            Stepper(value: Binding(get: { model.policy.pass.durationMinutes }, set: { submit(.setPassDuration(minutes: $0)) }),
+                    in: 1...60) {
+                Self.row(String(localized: "Pass length: \(model.policy.pass.durationMinutes) min"), String(localized: "How long one pass lasts."))
+            }
+            Stepper(value: Binding(get: { model.policy.pass.waitSeconds }, set: { submit(.setPassWait(seconds: $0)) }),
+                    in: 0...600, step: 10) {
+                Self.row(String(localized: "Wait before a pass: \(model.policy.pass.waitSeconds) s"), String(localized: "How long you wait after asking, before it starts."))
+            }
+            Stepper(value: Binding(get: { model.policy.pass.dailyCap }, set: { submit(.setPassCap($0)) }),
+                    in: 0...20) {
+                Self.row(String(localized: "Passes per day: \(model.policy.pass.dailyCap)"), String(localized: "How many passes you can use in a day."))
+            }
         } header: {
-            Text("Native passes")
+            Text("Passes")
         } footer: {
-            Text("A pass opens one shielded app for a few minutes, for things the web can't do (music on stories, close friends). Every pass is logged on this phone only.")
+            #if BZ_SCREEN_TIME
+            Text("A pass opens a blocked app for a few minutes, for things the web can't do (music on stories, close friends). Every pass is saved on this phone with the reason you gave.")
+            #else
+            Text("In this version a pass adds a few minutes in breakZero after a time limit or schedule stopped you. Every pass is saved on this phone with the reason you gave.")
+            #endif
         }
     }
 
@@ -257,10 +305,10 @@ struct WallView: View {
         let results = model.submit([change])
         switch results.first {
         case .queued(let p):
-            model.showToast(String(localized: "That loosens the wall, so it applies \(p.estimatedDue.formatted(date: .abbreviated, time: .shortened)). You can cancel it until then."),
+            model.showToast(String(localized: "That makes breakZero less strict, so it applies \(p.estimatedDue.formatted(date: .abbreviated, time: .shortened)). You can cancel it until then."),
                             kind: "wall.queued")
         case .rejectedHardLock(let until):
-            model.showToast(String(localized: "Hard Lock is on until \(until.formatted(date: .abbreviated, time: .shortened)). Nothing can be loosened before then."),
+            model.showToast(String(localized: "Hard Lock is on until \(until.formatted(date: .abbreviated, time: .shortened)). Nothing can be made less strict before then."),
                             kind: "wall.hardlock")
         case .rejectedInvalid(let why):
             model.showToast(why, kind: "wall.invalid")
@@ -273,6 +321,14 @@ struct WallView: View {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         return "breakZero \(v) (\(b))"
+    }
+
+    static func searchName(_ m: SearchMode) -> String {
+        switch m {
+        case .normal: String(localized: "Normal")
+        case .matching: String(localized: "only accounts that match my feed rules")
+        case .off: String(localized: "off")
+        }
     }
 
     static let cooldownOptions: [TimeInterval] = [3600, 6 * 3600, 12 * 3600, 86400, 2 * 86400, 3 * 86400, 7 * 86400]
@@ -310,7 +366,8 @@ struct WallView: View {
             String(localized: "\(p.displayName): \(surface == .feed ? String(localized: "feed") : String(localized: "stories")) shows \(AppModel.audienceName(a))")
         case let .setProfileStories(p, on): on ? String(localized: "\(p.displayName): play stories from profiles")
             : String(localized: "\(p.displayName): no stories from profiles")
-        case let .setLockGrace(t): String(localized: "Undo window \(Int(t / 60)) min")
+        case let .setLockGrace(t): String(localized: "Undo time \(Int(t / 60)) min")
+        case let .setSearchMode(p, m): String(localized: "\(p.displayName) search: \(Self.searchName(m))")
         case let .setDailyTotal(m?): String(localized: "All apps: \(m) min a day")
         case .setDailyTotal(nil): String(localized: "All apps: no daily limit")
         case let .setPlatformShortFormBudget(p, m?): String(localized: "\(p.displayName) short videos: \(m) min a day")
@@ -352,6 +409,33 @@ enum ToggleTitles {
         }
     }
 
+    /// One plain line under each switch.
+    static func detail(_ id: String) -> String {
+        switch id {
+        case "ig.blockReels": String(localized: "The endless Reels feed is closed. A reel someone sends you still plays.")
+        case "ig.blockExplore": String(localized: "The Explore page of suggested posts is closed.")
+        case "ig.blockShop": String(localized: "The Shop pages are closed.")
+        case "ig.hideReelsEntryPoints": String(localized: "Removes the Reels button and Reels links.")
+        case "ig.hideSuggested": String(localized: "Removes \"Suggested for you\" accounts.")
+        case "ig.hideSponsored": String(localized: "Removes ads in the feed.")
+        case "ig.hideFeed": String(localized: "No home feed at all: stories and messages only.")
+        case "ig.friendsOnly": String(localized: "Your home feed shows only the people your feed rules allow.")
+        case "ig.forceFollowing": String(localized: "The home feed opens on posts from people you follow, newest first.")
+        case "yt.landOnSubscriptions": String(localized: "Starts on your subscriptions instead of recommendations.")
+        case "yt.shortsAsVideos": String(localized: "A Short opens as a normal video, without the swipe feed.")
+        case "yt.hideShorts": String(localized: "Removes Shorts rows and the Shorts tab.")
+        case "yt.hideRecommendations": String(localized: "Removes recommended videos on the home page.")
+        case "yt.hideRelated": String(localized: "Removes the list of related videos next to a video.")
+        case "yt.hideEndScreen": String(localized: "Removes the video suggestions at the end of a video.")
+        case "yt.autoplayOff": String(localized: "A finished video doesn't start the next one.")
+        case "yt.hideComments": String(localized: "Removes comments under videos.")
+        case "sc.blockSpotlight": String(localized: "The Spotlight video feed is closed.")
+        case "sc.blockDiscover": String(localized: "Discover and browsing other people's stories are closed.")
+        case "sc.hideDiscoveryLinks": String(localized: "Removes Spotlight and Discover buttons and links.")
+        default: ""
+        }
+    }
+
     static func landing(_ key: String) -> String {
         switch key {
         case "inbox": String(localized: "Messages")
@@ -381,8 +465,7 @@ enum LockConfirmation: Identifiable, Equatable {
 struct ConfirmLockSheet: View {
     @Environment(\.dismiss) private var dismiss
     let confirmation: LockConfirmation
-    let cooldown: TimeInterval
-    let grace: TimeInterval
+    let facts: WallExplainer.Facts
     let onConfirm: () -> Void
 
     var body: some View {
@@ -405,7 +488,7 @@ struct ConfirmLockSheet: View {
         .presentationDetents([.medium, .large])
     }
 
-    private var wait: String { WallView.format(cooldown) }
+    private var wait: String { WallExplainer.duration(facts.cooldown) }
 
     private var title: String {
         switch confirmation {
@@ -415,20 +498,11 @@ struct ConfirmLockSheet: View {
         }
     }
 
+    /// The short version of "What is the Wall?" for what's about to be turned on.
     private var lines: [String] {
         switch confirmation {
         case .lock:
-            var l = [
-                String(localized: "From now on, anything that loosens the wall waits \(wait) before it happens: turning a rule off, raising a limit, showing more people, a shorter cooldown, or turning the Lock off."),
-                String(localized: "Making the wall stronger still works right away."),
-            ]
-            if grace > 0 {
-                l.append(String(localized: "For the next \(Int(grace / 60)) minutes you can undo this instantly from the Wall tab."))
-            }
-            #if BZ_SCREEN_TIME
-            l.append(String(localized: "With Block deleting on, breakZero also can't be deleted while it's locked."))
-            #endif
-            return l
+            return WallExplainer.confirmation(facts)
         case .denyRemoval:
             return [
                 String(localized: "breakZero can't be deleted from the home screen or Settings while this is on."),
@@ -436,8 +510,8 @@ struct ConfirmLockSheet: View {
             ]
         case let .hardLock(until):
             return [
-                String(localized: "Until \(until.formatted(date: .abbreviated, time: .shortened)), nothing can be loosened at all, not even after the cooldown."),
-                String(localized: "Changing the clock doesn't end it early."),
+                String(localized: "Until \(until.formatted(date: .abbreviated, time: .shortened)), nothing can be made less strict at all, not even after waiting."),
+                String(localized: "Changing the phone's clock doesn't end it early."),
             ]
         }
     }

@@ -15,8 +15,8 @@ struct RevocationView: View {
                 .font(.system(size: 56))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            Text("The wall is down").font(.title2.bold())
-            Text("breakZero no longer has Screen Time access, so iOS removed every shield it had set.")
+            Text("Blocking is off").font(.title2.bold())
+            Text("breakZero no longer has Screen Time access, so iOS unblocked every app it had blocked.")
                 .multilineTextAlignment(.center)
             if let verified = model.lock.lastVerifiedIntact {
                 Text("Last confirmed in place: \(verified.formatted(date: .abbreviated, time: .shortened))")
@@ -25,11 +25,11 @@ struct RevocationView: View {
             Button {
                 Task { await rebuild() }
             } label: {
-                Text("Rebuild the wall").frame(maxWidth: .infinity)
+                Text("Turn blocking back on").frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            Button("Continue without the wall") { model.acknowledgedWallDown = true }
+            Button("Continue without blocking") { model.acknowledgedWallDown = true }
             if let error { Text(error).font(.footnote).foregroundStyle(.red) }
             Spacer()
         }

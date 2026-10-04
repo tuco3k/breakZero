@@ -178,7 +178,7 @@ struct DiagnosticsView: View {
             Section {
                 Button("Reset all breakZero data", role: .destructive) { confirmReset = true }
             } header: { Text("Debug build only") } footer: {
-                Text("Clears the wall, lock, lists, limits, ledgers and every lite view's web data (you'll be signed out), then closes the app. Not in release builds.")
+                Text("Clears every setting, the Lock, lists, limits, time records and every lite view's web data (you'll be signed out), then closes the app. Not in release builds.")
             }
             #endif
 
@@ -494,8 +494,8 @@ enum SpikeCatalog {
               ifPass: "You won't miss messages.",
               ifFail: "Shielding silences notifications; open breakZero to check."),
         .init(id: "S5", title: "Wall holds",
-              tests: "Can the wall be removed in Settings without the Screen Time passcode?",
-              ifPass: "The wall holds on this iOS version.",
+              tests: "Can breakZero's Screen Time access be turned off in Settings without the Screen Time passcode?",
+              ifPass: "Blocking holds on this iOS version.",
               ifFail: "There's a way around it on this iOS version; see the security notes."),
         .init(id: "S6", title: "Speed",
               tests: "How fast does a lite view open, and how much memory does it use?",

@@ -713,7 +713,7 @@ final class AppModel {
         case "outOfScope": return String(localized: "Reels only open from a message.")
         case "redirected": return String(localized: "Opened the allowed version.")
         case "autoAdvance": return String(localized: "Autoplay is off.")
-        default: return String(localized: "That part is behind the wall.")
+        default: return String(localized: "That part is blocked in breakZero.")
         }
     }
 
